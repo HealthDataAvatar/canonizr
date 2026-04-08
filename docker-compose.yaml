@@ -1,0 +1,88 @@
+services:
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: gateway.dockerfile
+    ports:
+      - "${GATEWAY_PORT:-7005}:8000"
+    environment:
+      - CAPTIONING_ENABLED=${CAPTIONING_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
+    networks:
+      - canonizr
+    depends_on:
+      docling:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  gateway-tests:
+    profiles: ["test"]
+    build:
+      context: ./gateway
+      dockerfile: gateway-tests.dockerfile
+    volumes:
+      - ./examples:/examples
+      - ./reports/gateway/:/reports
+    networks:
+      - canonizr
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+  docling:
+    build:
+      context: ./docling
+      dockerfile: docling.dockerfile
+    networks:
+      - canonizr
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/docs')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  captioning:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    volumes:
+      - ./models:/models
+    command: >
+      --model ${CAPTIONING_MODEL:-/models/gemma-4-e4b.gguf}
+      --mmproj ${CAPTIONING_MMPROJ:-/models/gemma-4-e4b-mmproj-f16.gguf}
+      --host 0.0.0.0
+      --port 8080
+      --ctx-size ${CAPTIONING_CTX_SIZE:-8192}
+      --n-predict ${CAPTIONING_N_PREDICT:-1024}
+      --reasoning off
+    networks:
+      - canonizr
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  libreoffice:
+    build:
+      context: ./libreoffice
+      dockerfile: libreoffice.dockerfile
+    networks:
+      - canonizr
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+networks:
+  canonizr:
+    driver: bridge

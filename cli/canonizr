@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PORT="${CANONIZR_PORT:-7005}"
+BASE_URL="http://localhost:${PORT}"
+
+usage() {
+  echo "Usage: canonizr convert [--json] <file>"
+  echo "       canonizr health"
+  exit 1
+}
+
+cmd_convert() {
+  local json_mode=false
+  local file=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json) json_mode=true; shift ;;
+      *) file="$1"; shift ;;
+    esac
+  done
+
+  if [[ -z "$file" ]]; then
+    usage
+  fi
+
+  if [[ ! -f "$file" ]]; then
+    echo "Error: file not found: $file" >&2
+    exit 1
+  fi
+
+  response=$(curl -sf "${BASE_URL}/convert" -F "file=@${file}" 2>&1) || {
+    echo "Error: could not reach Canonizr at ${BASE_URL}" >&2
+    echo "Is the service running? Start it with: docker compose up" >&2
+    exit 1
+  }
+
+  if [[ "$json_mode" == "true" ]]; then
+    echo "$response"
+  else
+    echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['markdown'])"
+  fi
+}
+
+cmd_health() {
+  curl -sf "${BASE_URL}/health" && echo "" || {
+    echo "Error: Canonizr is not running at ${BASE_URL}" >&2
+    exit 1
+  }
+}
+
+if [[ $# -lt 1 ]]; then
+  usage
+fi
+
+case "$1" in
+  convert) shift; cmd_convert "$@" ;;
+  health) cmd_health ;;
+  *) usage ;;
+esac

@@ -1,0 +1,35 @@
+import logging
+from io import BytesIO
+
+import httpx
+from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
+
+URL = "http://libreoffice:8000/convert"
+
+
+async def convert(file_bytes: bytes, mime_type: str, filename: str, target_format: str, timeout: float) -> tuple[bytes, str]:
+    """Convert a file via headless LibreOffice. Returns (converted_bytes, new_mime_type)."""
+    content = BytesIO(file_bytes)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            response = await client.post(
+                URL,
+                files=[("file", (filename, content, mime_type))],
+                params={"format": target_format},
+            )
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="LibreOffice service timeout")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"Failed to reach LibreOffice: {e}")
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"LibreOffice service error {response.status_code}: {response.text}",
+        )
+
+    content_type = response.headers.get("content-type", "application/octet-stream")
+    return response.content, content_type

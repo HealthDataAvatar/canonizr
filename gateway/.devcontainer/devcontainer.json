@@ -1,0 +1,28 @@
+{
+    "name": "Gateway Dev Container",
+    "build": {
+        "dockerfile": "backend.dockerfile"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "streetsidesoftware.code-spell-checker",
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "mhutchie.git-graph",
+                "waderyan.gitblame",
+                "ms-python.autopep8",
+            ],
+            "settings": {
+                "autopep8.args": [
+                    "--ignore=E731"
+                ],
+                "cSpell.language": "en-GB",
+                "git.blame.editorDecoration.enabled": false,
+            }
+        }
+    },
+    "postCreateCommand": {
+        "required-modules": "pip install -r app/requirements.txt && pip install -r tests/requirements.txt",
+    }
+}

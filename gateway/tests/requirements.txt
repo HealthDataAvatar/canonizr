@@ -1,0 +1,7 @@
+pytest
+pytest-html
+requests
+python-docx
+openpyxl
+Pillow
+reportlab
