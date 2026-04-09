@@ -56,7 +56,7 @@ function App() {
     } catch (err) {
       setStatus("error");
       setStatusMessage(
-        err instanceof Error ? err.message : "Something went wrong"
+        err instanceof Error ? err.message : "Conversion failed. Check the gateway is running and try again."
       );
     }
   }, []);
@@ -74,7 +74,7 @@ function App() {
   return (
     <>
       <header className="header">
-        <h1><a href="https://canonizr.com" target="_blank" rel="noopener noreferrer">Canonizr</a></h1>
+        <h1><a href="https://canonizr.com" target="_blank" rel="noopener noreferrer" aria-label="Canonizr (opens canonizr.com)">Canonizr</a></h1>
       </header>
 
       <main className="main">
