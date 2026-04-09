@@ -32,6 +32,20 @@ See [filetypes.md](filetypes.md) for the full list of supported formats.
 ./cli/canonizr health                  # check if the service is running
 ```
 
+## Web UI
+
+![A screenshot of the Web UI](web/public/ui-screenshot.webp)
+
+The web interface provides drag-and-drop document conversion in the browser. Requires the pipeline to be running.
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Then open http://localhost:5173.
+
 ## Scripts
 
 | Script | Purpose |
