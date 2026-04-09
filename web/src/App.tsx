@@ -83,6 +83,9 @@ function App() {
           <div className="panel-body">
             <div
               className={`dropzone ${dragActive ? "active" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-label="Upload a document"
               onDragOver={(e) => {
                 e.preventDefault();
                 setDragActive(true);
@@ -90,6 +93,12 @@ function App() {
               onDragLeave={() => setDragActive(false)}
               onDrop={handleDrop}
               onClick={() => inputRef.current?.click()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  inputRef.current?.click();
+                }
+              }}
             >
               <div className="dropzone-icon">+</div>
               <div className="dropzone-label">
@@ -116,19 +125,21 @@ function App() {
               </div>
             )}
 
-            {status !== "idle" && (
-              <div className={`status status-${status}`}>
-                {statusMessage}
-                {status === "error" && file && (
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => convertFile(file)}
-                  >
-                    Retry
-                  </button>
-                )}
-              </div>
-            )}
+            <div role="status" aria-live="polite">
+              {status !== "idle" && (
+                <div className={`status status-${status}`}>
+                  {statusMessage}
+                  {status === "error" && file && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => convertFile(file)}
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
