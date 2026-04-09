@@ -1,11 +1,27 @@
 """Shared fixtures for gateway integration tests."""
 import io
+import os
+from collections import namedtuple
+
+import pytest
+
+
+def pytest_collection_modifyitems(config, items):
+    """When FOCUS_TESTS=1, run only tests marked @pytest.mark.focus."""
+    if os.environ.get("FOCUS_TESTS") != "1":
+        return
+    focus_items = [item for item in items if item.get_closest_marker("focus")]
+    if focus_items:
+        items[:] = focus_items
 
 from docx import Document
 from openpyxl import Workbook
 from PIL import Image, ImageDraw
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
+
+EmbeddedImage = namedtuple("EmbeddedImage", ["label", "width", "height"])
 
 GATEWAY_URL = "http://gateway:8000"
 TIMEOUT = 120
@@ -39,8 +55,27 @@ def make_pdf_with_image(text: str = "Document with figure below.") -> bytes:
     c.drawString(72, 750, text)
 
     img_bytes = make_png("Chart Data")
-    img_buf = io.BytesIO(img_bytes)
-    c.drawImage(img_buf, 72, 500, width=200, height=100)
+    c.drawImage(ImageReader(io.BytesIO(img_bytes)), 72, 500, width=200, height=100)
+
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def make_pdf_with_images(images: list[EmbeddedImage], text: str = "Document with embedded images.") -> bytes:
+    """Generate a PDF containing text and multiple embedded images of varying sizes."""
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.drawString(72, 800, text)
+
+    y_cursor = 750
+    for img in images:
+        img_bytes = make_png(img.label, width=img.width, height=img.height)
+        c.drawImage(ImageReader(io.BytesIO(img_bytes)), 72, y_cursor - img.height, width=img.width, height=img.height)
+        y_cursor -= img.height + 20
+        if y_cursor < 100:
+            c.showPage()
+            y_cursor = 750
 
     c.showPage()
     c.save()
@@ -63,6 +98,7 @@ def make_xlsx() -> bytes:
     """Generate a simple XLSX with a table."""
     wb = Workbook()
     ws = wb.active
+    assert ws is not None
     ws.title = "Test"
     ws.append(["Name", "Value"])
     ws.append(["Alpha", 10])

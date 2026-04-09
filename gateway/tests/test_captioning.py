@@ -11,13 +11,13 @@ def test_image_returns_text():
         files={"file": ("test.png", io.BytesIO(png_bytes), "image/png")},
         timeout=TIMEOUT,
     )
-    # 200 if captioning is running, 422 if disabled
+    # 200 if transcription is running, 422 if disabled
     assert r.status_code in [200, 422]
 
     if r.status_code == 200:
         data = r.json()
         assert len(data["markdown"]) > 0
-        assert "captioning" in data["metadata"]["actions"]
+        assert "transcription" in data["metadata"]["actions"]
 
 
 def test_image_caption_not_empty():

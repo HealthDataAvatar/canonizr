@@ -50,17 +50,22 @@ LIBREOFFICE_TYPES = {
 }
 
 
-async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: float) -> ConvertResult:
+async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: float, debug: list[dict] | None = None) -> ConvertResult:
     """Convert any supported file to markdown."""
+    if debug is None:
+        debug = []
     start_time = time.time()
 
     # Passthrough — already LLM-readable
     if mime_type in PASSTHROUGH_TYPES:
+        elapsed = (time.time() - start_time) * 1000
+        debug.append({"step": "passthrough", "elapsed_ms": elapsed})
         return ConvertResult(
             markdown=file_bytes.decode("utf-8", errors="replace"),
             detected_type=mime_type,
             actions=["passthrough"],
-            processing_time_ms=(time.time() - start_time) * 1000,
+            processing_time_ms=elapsed,
+            debug=debug,
         )
 
     # Images — caption or transcribe
@@ -70,31 +75,34 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
                 "Image processing requires the captioning service. "
                 "Set CAPTIONING_ENABLED=true in .env and ensure the captioning container is running."
             )
-        result = await captioning.transcribe(file_bytes, mime_type, timeout)
+        result = await captioning.transcribe(file_bytes, mime_type, timeout, debug)
         result.detected_type = mime_type
         return result
 
     # PDF — Docling for quality extraction
     if mime_type == "application/pdf":
-        return await docling.convert(file_bytes, mime_type, timeout)
+        return await docling.convert(file_bytes, mime_type, timeout, debug)
 
     # Office docs MarkItDown handles directly
     if mime_type in MARKITDOWN_TYPES:
-        result = markitdown.convert_stream(BytesIO(file_bytes), file_extension=_ext_from_filename(filename))
+        mit_result = markitdown.convert_stream(BytesIO(file_bytes), file_extension=_ext_from_filename(filename))
+        elapsed = (time.time() - start_time) * 1000
+        debug.append({"step": "markitdown", "elapsed_ms": elapsed, "md_length": len(mit_result.text_content)})
         return ConvertResult(
-            markdown=result.text_content,
+            markdown=mit_result.text_content,
             detected_type=mime_type,
             actions=["markitdown"],
-            processing_time_ms=(time.time() - start_time) * 1000,
+            processing_time_ms=elapsed,
+            debug=debug,
         )
 
     # Legacy formats — LibreOffice converts, then re-process
     if mime_type in LIBREOFFICE_TYPES:
         target = LIBREOFFICE_TYPES[mime_type]
         converted_bytes, converted_mime = await libreoffice.convert(
-            file_bytes, mime_type, filename, target, timeout
+            file_bytes, mime_type, filename, target, timeout, debug
         )
-        result = await convert(converted_bytes, converted_mime, filename, timeout)
+        result = await convert(converted_bytes, converted_mime, filename, timeout, debug)
         result.actions.insert(0, f"libreoffice ({mime_type} → {target})")
         result.detected_type = mime_type
         return result

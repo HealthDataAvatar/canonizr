@@ -1,6 +1,6 @@
 import os
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, Query, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import magic
 from io import BytesIO
@@ -23,7 +23,10 @@ if CORS_ORIGINS:
 
 
 @app.post("/convert")
-async def convert_document(file: UploadFile = File(...)):
+async def convert_document(
+    file: UploadFile = File(...),
+    verbose: bool = Query(False),
+):
     """Convert a file to markdown."""
     content = BytesIO()
     size = 0
@@ -45,10 +48,14 @@ async def convert_document(file: UploadFile = File(...)):
 
     mime_type = magic.from_buffer(file_bytes, mime=True)
 
+    debug = []
+    if verbose:
+        debug.append({"step": "detect", "mime_type": mime_type, "file_size_bytes": size})
+
     try:
-        result = await convert(file_bytes, mime_type, file.filename or "document", REQUEST_TIMEOUT)
+        result = await convert(file_bytes, mime_type, file.filename or "document", REQUEST_TIMEOUT, debug)
         result.detected_type = mime_type
-        return result.to_dict()
+        return result.to_dict(verbose=verbose)
     except UnsupportedFormat as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ServiceNotConfigured as e:

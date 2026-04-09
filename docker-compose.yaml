@@ -29,6 +29,7 @@ services:
       dockerfile: gateway-tests.dockerfile
     volumes:
       - ./examples:/examples
+      - ./gateway/tests/fixtures:/fixtures
       - ./reports/gateway/:/reports
     networks:
       - canonizr

@@ -32,5 +32,5 @@ def test_empty_file():
         files={"file": ("empty.txt", io.BytesIO(b""), "text/plain")},
         timeout=TIMEOUT,
     )
-    # Should succeed with empty markdown, not crash
-    assert r.status_code == 200
+    # Empty files are rejected as unsupported format
+    assert r.status_code == 400

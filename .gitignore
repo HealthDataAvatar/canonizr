@@ -6,3 +6,4 @@ models/
 .venv/
 __pycache__/
 .examples/
+.docs/

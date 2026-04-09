@@ -80,14 +80,19 @@ async def caption(image_bytes: bytes, mime_type: str, timeout: float) -> Convert
     )
 
 
-async def transcribe(image_bytes: bytes, mime_type: str, timeout: float) -> ConvertResult:
+async def transcribe(image_bytes: bytes, mime_type: str, timeout: float, debug: list[dict] | None = None) -> ConvertResult:
     """Transcribe an image of text, table, or handwriting."""
+    if debug is None:
+        debug = []
     image_bytes, mime_type = to_png(image_bytes, mime_type)
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     raw, elapsed = await _call(image_b64, mime_type, TRANSCRIBE, max_tokens=1024, timeout=timeout)
+    content = _extract_content(raw)
+    debug.append({"step": "transcription", "elapsed_ms": elapsed, "output_length": len(content)})
     return ConvertResult(
-        markdown=_extract_content(raw),
+        markdown=content,
         detected_type=mime_type,
         actions=["transcription"],
         processing_time_ms=elapsed,
+        debug=debug,
     )
