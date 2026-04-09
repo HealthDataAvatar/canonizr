@@ -70,7 +70,7 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
                 "Image processing requires the captioning service. "
                 "Set CAPTIONING_ENABLED=true in .env and ensure the captioning container is running."
             )
-        result = await captioning.caption(file_bytes, mime_type, timeout)
+        result = await captioning.transcribe(file_bytes, mime_type, timeout)
         result.detected_type = mime_type
         return result
 
