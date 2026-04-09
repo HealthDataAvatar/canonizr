@@ -29,7 +29,6 @@ MARKITDOWN_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
-    "application/vnd.oasis.opendocument.text",  # .odt
     "application/epub+zip",  # .epub
     "message/rfc822",  # .eml
     "application/vnd.ms-outlook",  # .msg
@@ -42,6 +41,7 @@ LIBREOFFICE_TYPES = {
     "text/rtf": "docx",  # .rtf → .docx (alternate MIME)
     "application/vnd.ms-powerpoint": "pptx",  # .ppt → .pptx
     "application/vnd.ms-excel": "xlsx",  # .xls → .xlsx
+    "application/vnd.oasis.opendocument.text": "docx",  # .odt → .docx
     "application/vnd.oasis.opendocument.presentation": "pdf",  # .odp → .pdf
     "application/vnd.oasis.opendocument.spreadsheet": "xlsx",  # .ods → .xlsx
     "application/vnd.apple.pages": "docx",  # .pages → .docx
