@@ -4,6 +4,26 @@ set -euo pipefail
 echo "=== Canonizr Pipeline Setup ==="
 echo ""
 
+# Install CLI to PATH
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CLI_PATH="$SCRIPT_DIR/../cli/canonizr"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+
+if [ -L "$INSTALL_DIR/canonizr" ] && [ "$(readlink "$INSTALL_DIR/canonizr")" = "$CLI_PATH" ]; then
+  echo "  canonizr CLI already installed."
+else
+  read -rp "Install canonizr CLI to $INSTALL_DIR? (Y/n) " install_cli
+  if [[ ! "$install_cli" =~ ^[Nn]$ ]]; then
+    mkdir -p "$INSTALL_DIR"
+    ln -sf "$CLI_PATH" "$INSTALL_DIR/canonizr"
+    echo "  canonizr CLI installed to $INSTALL_DIR/canonizr"
+    if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
+      echo "  Note: $INSTALL_DIR is not on your PATH. Add it with:"
+      echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
+    fi
+  fi
+fi
+
 # Parse flags
 NO_CAPTIONING=false
 for arg in "$@"; do
@@ -100,7 +120,8 @@ echo ""
 echo "=== Setup complete ==="
 echo "  .env written."
 echo ""
-echo "  Start the pipeline with: ./bin/up.sh"
+echo "  Start the pipeline with: canonizr up"
+echo "  Stop the pipeline with: canonizr down"
 if [ "$CAPTIONING_ENABLED" = "true" ]; then
   echo "  (captioning service will start automatically)"
 fi

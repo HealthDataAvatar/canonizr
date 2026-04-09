@@ -4,9 +4,19 @@ set -euo pipefail
 PORT="${CANONIZR_PORT:-7005}"
 BASE_URL="http://localhost:${PORT}"
 
+REPO_ROOT="$(cd "$(dirname "$(readlink "$0" || echo "$0")")/.." && pwd)"
+
 usage() {
-  echo "Usage: canonizr convert [--json] <file>"
-  echo "       canonizr health"
+  echo "Usage: canonizr <command>"
+  echo ""
+  echo "Commands:"
+  echo "  up        Start the pipeline"
+  echo "  down      Stop the pipeline"
+  echo "  convert   Convert a file to markdown"
+  echo "  health    Check if the service is running"
+  echo ""
+  echo "Options:"
+  echo "  convert [--json] <file>"
   exit 1
 }
 
@@ -32,7 +42,7 @@ cmd_convert() {
 
   response=$(curl -sf "${BASE_URL}/convert" -F "file=@${file}" 2>&1) || {
     echo "Error: could not reach Canonizr at ${BASE_URL}" >&2
-    echo "Is the service running? Start it with: docker compose up" >&2
+    echo "Is the service running? Start it with: canonizr up" >&2
     exit 1
   }
 
@@ -50,11 +60,28 @@ cmd_health() {
   }
 }
 
+cmd_up() {
+  cd "$REPO_ROOT"
+  source .env 2>/dev/null || true
+  if [ "${CAPTIONING_ENABLED:-true}" = "false" ]; then
+    docker compose up -d --build gateway docling libreoffice
+  else
+    docker compose up -d --build
+  fi
+}
+
+cmd_down() {
+  cd "$REPO_ROOT"
+  docker compose down
+}
+
 if [[ $# -lt 1 ]]; then
   usage
 fi
 
 case "$1" in
+  up) cmd_up ;;
+  down) cmd_down ;;
   convert) shift; cmd_convert "$@" ;;
   health) cmd_health ;;
   *) usage ;;

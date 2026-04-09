@@ -27,10 +27,12 @@ See [filetypes.md](filetypes.md) for the full list of supported formats.
 
 ## CLI
 
+If you have run `./bin/setup.sh` then `canonizr` will be added to your PATH.
+
 ```bash
-./cli/canonizr convert <file>          # markdown to stdout
-./cli/canonizr convert --json <file>   # full JSON response with metadata
-./cli/canonizr health                  # check if the service is running
+canonizr convert <file>          # markdown to stdout
+canonizr convert --json <file>   # full JSON response with metadata
+canonizr health                  # check if the service is running
 ```
 
 ## Web UI
