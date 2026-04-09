@@ -1,3 +1,5 @@
+![Canonizr](web/public/logo.webp)
+
 # Canonizr
 
 On-device document extraction pipeline. Converts any document into LLM-ready markdown.
