@@ -38,9 +38,7 @@ services:
         condition: service_healthy
 
   docling:
-    build:
-      context: ./docling
-      dockerfile: docling.dockerfile
+    image: ghcr.io/docling-project/docling-serve-cpu
     networks:
       - canonizr
     healthcheck:

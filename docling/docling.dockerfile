@@ -1,1 +1,0 @@
-FROM ghcr.io/docling-project/docling-serve-cpu
