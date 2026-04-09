@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 app = FastAPI()
 
@@ -44,10 +44,13 @@ async def convert(file: UploadFile = File(...), format: str = "pdf"):
                 detail=f"Conversion produced no output file",
             )
 
-        return FileResponse(
-            output_path,
+        with open(output_path, "rb") as f:
+            content = f.read()
+
+        return Response(
+            content=content,
             media_type="application/octet-stream",
-            filename=f"{basename}.{format}",
+            headers={"Content-Disposition": f'attachment; filename="{basename}.{format}"'},
         )
 
 

@@ -31,5 +31,11 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, target_forma
             detail=f"LibreOffice service error {response.status_code}: {response.text}",
         )
 
-    content_type = response.headers.get("content-type", "application/octet-stream")
-    return response.content, content_type
+    FORMAT_MIMES = {
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pdf": "application/pdf",
+    }
+    converted_mime = FORMAT_MIMES.get(target_format, "application/octet-stream")
+    return response.content, converted_mime

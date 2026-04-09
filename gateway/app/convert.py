@@ -1,5 +1,7 @@
 import time
 
+from io import BytesIO
+
 from markitdown import MarkItDown
 
 from .response import ConvertResult
@@ -37,6 +39,7 @@ MARKITDOWN_TYPES = {
 LIBREOFFICE_TYPES = {
     "application/msword": "docx",  # .doc → .docx
     "application/rtf": "docx",  # .rtf → .docx
+    "text/rtf": "docx",  # .rtf → .docx (alternate MIME)
     "application/vnd.ms-powerpoint": "pptx",  # .ppt → .pptx
     "application/vnd.ms-excel": "xlsx",  # .xls → .xlsx
     "application/vnd.oasis.opendocument.presentation": "pdf",  # .odp → .pdf
@@ -77,7 +80,7 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
 
     # Office docs MarkItDown handles directly
     if mime_type in MARKITDOWN_TYPES:
-        result = markitdown.convert_stream(file_bytes, file_extension=_ext_from_filename(filename))
+        result = markitdown.convert_stream(BytesIO(file_bytes), file_extension=_ext_from_filename(filename))
         return ConvertResult(
             markdown=result.text_content,
             detected_type=mime_type,
