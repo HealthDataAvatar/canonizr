@@ -27,31 +27,15 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = useCallback((f: File) => {
+  const convertFile = useCallback(async (f: File) => {
     setFile(f);
-    setStatus("idle");
     setResult(null);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragActive(false);
-      const f = e.dataTransfer.files[0];
-      if (f) handleFile(f);
-    },
-    [handleFile]
-  );
-
-  const handleConvert = useCallback(async () => {
-    if (!file) return;
-
     setStatus("loading");
     setStatusMessage("Processing document...");
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", f);
 
       const response = await fetch(`${GATEWAY_URL}/convert`, {
         method: "POST",
@@ -60,9 +44,7 @@ function App() {
 
       if (!response.ok) {
         const err = await response.json().catch(() => null);
-        throw new Error(
-          err?.detail || `Server error: ${response.status}`
-        );
+        throw new Error(err?.detail || `Server error: ${response.status}`);
       }
 
       const data: ConvertResponse = await response.json();
@@ -77,12 +59,22 @@ function App() {
         err instanceof Error ? err.message : "Something went wrong"
       );
     }
-  }, [file]);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragActive(false);
+      const f = e.dataTransfer.files[0];
+      if (f) convertFile(f);
+    },
+    [convertFile]
+  );
 
   return (
     <>
       <header className="header">
-        <h1>Canonizr</h1>
+        <h1><a href="https://canonizr.com" target="_blank" rel="noopener noreferrer">Canonizr</a></h1>
       </header>
 
       <main className="main">
@@ -112,7 +104,7 @@ function App() {
                 hidden
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (f) handleFile(f);
+                  if (f) convertFile(f);
                 }}
               />
             </div>
@@ -124,16 +116,18 @@ function App() {
               </div>
             )}
 
-            <button
-              className="btn btn-primary"
-              disabled={!file || status === "loading"}
-              onClick={handleConvert}
-            >
-              {status === "loading" ? "Processing..." : "Convert"}
-            </button>
-
             {status !== "idle" && (
-              <div className={`status status-${status}`}>{statusMessage}</div>
+              <div className={`status status-${status}`}>
+                {statusMessage}
+                {status === "error" && file && (
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => convertFile(file)}
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
