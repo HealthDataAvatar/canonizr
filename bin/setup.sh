@@ -4,6 +4,14 @@ set -euo pipefail
 echo "=== Canonizr Pipeline Setup ==="
 echo ""
 
+# Parse flags
+NO_CAPTIONING=false
+for arg in "$@"; do
+  case "$arg" in
+    --no-captioning) NO_CAPTIONING=true ;;
+  esac
+done
+
 # Check dependencies
 if ! command -v docker &>/dev/null; then
   echo "Error: docker is required but not installed."
@@ -20,8 +28,12 @@ if [ -f .env ]; then
 fi
 
 # Captioning setup
-echo ""
-read -rp "Enable image captioning? (Y/n) " enable_captioning
+if [ "$NO_CAPTIONING" = true ]; then
+  enable_captioning="n"
+else
+  echo ""
+  read -rp "Enable image captioning? (Y/n) " enable_captioning
+fi
 if [[ "$enable_captioning" =~ ^[Nn]$ ]]; then
   CAPTIONING_ENABLED="false"
   CAPTIONING_VARS=""

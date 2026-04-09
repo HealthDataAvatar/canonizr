@@ -35,13 +35,14 @@ See [filetypes.md](filetypes.md) for the full list of supported formats.
 | Script | Purpose |
 |---|---|
 | `./bin/setup.sh` | One-time configuration (writes `.env`) |
+| `./bin/setup.sh --no-captioning` | Setup without the captioning VLM (~6 GB smaller) |
 | `./bin/up.sh` | Start the pipeline |
 | `./bin/down.sh` | Stop the pipeline |
 
 ## Requirements
 
 - Docker + Docker Compose
-- ~8GB disk (gateway + Docling + captioning model)
+- ~8 GB disk (~2 GB without captioning)
 
 ## Configuration
 
