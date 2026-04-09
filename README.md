@@ -79,6 +79,3 @@ Only the gateway port is exposed. All services communicate internally over the D
 
 Canonizr can be used as an OpenClaw skill. See `SKILL.md` for agent integration details.
 
-## License
-
-TBD
