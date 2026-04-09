@@ -5,3 +5,4 @@ models/
 .env
 .venv/
 __pycache__/
+.examples/
