@@ -3,6 +3,7 @@
 # Canonizr
 
 On-device document extraction pipeline. Converts any document into LLM-ready markdown.
+Canonizr is part of the [Health Data Avatar](healthdataavatar.com) project, and there are more details available at [Canonizr.com](Canonizr.com).
 
 ## Quick Start
 
