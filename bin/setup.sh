@@ -28,42 +28,45 @@ if [[ "$enable_captioning" =~ ^[Nn]$ ]]; then
 else
   CAPTIONING_ENABLED="true"
 
-  DEFAULT_MODEL="/models/gemma-4-e4b.gguf"
-  DEFAULT_MMPROJ="/models/gemma-4-e4b-mmproj-f16.gguf"
+  DEFAULT_MODEL="/models/vision.gguf"
+  DEFAULT_MMPROJ="/models/vision.mmproj.gguf"
 
-  echo ""
-  echo "Model configuration (paths are inside the container, mapped from ./models/):"
-  read -rp "  Model path [$DEFAULT_MODEL]: " model_path
-  model_path="${model_path:-$DEFAULT_MODEL}"
+  MODEL_URL="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
+  MMPROJ_URL="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf"
 
-  read -rp "  MMProj path [$DEFAULT_MMPROJ]: " mmproj_path
-  mmproj_path="${mmproj_path:-$DEFAULT_MMPROJ}"
+  # Check if model files exist locally, offer to download if missing
+  mkdir -p ./models
 
-  read -rp "  Context size [8192]: " ctx_size
-  ctx_size="${ctx_size:-8192}"
-
-  read -rp "  Max predict tokens [1024]: " n_predict
-  n_predict="${n_predict:-1024}"
-
-  # Check if model files exist locally
-  local_model="./models/$(basename "$model_path")"
-  local_mmproj="./models/$(basename "$mmproj_path")"
-
-  if [ ! -f "$local_model" ]; then
+  if [ ! -f "./models/vision.gguf" ]; then
     echo ""
-    echo "Warning: $local_model not found."
-    echo "Download your GGUF model file and place it in ./models/"
-  fi
-  if [ ! -f "$local_mmproj" ]; then
-    echo ""
-    echo "Warning: $local_mmproj not found."
-    echo "Download your mmproj file and place it in ./models/"
+    echo "Model file not found: ./models/vision.gguf (4.98 GB)"
+    read -rp "Download it now? (Y/n) " dl_model
+    if [[ ! "$dl_model" =~ ^[Nn]$ ]]; then
+      echo "Downloading vision model..."
+      curl -L -o ./models/vision.gguf "$MODEL_URL"
+    else
+      echo "Download it manually:"
+      echo "  curl -L -o ./models/vision.gguf $MODEL_URL"
+    fi
   fi
 
-  CAPTIONING_VARS="CAPTIONING_MODEL=$model_path
-CAPTIONING_MMPROJ=$mmproj_path
-CAPTIONING_CTX_SIZE=$ctx_size
-CAPTIONING_N_PREDICT=$n_predict"
+  if [ ! -f "./models/vision.mmproj.gguf" ]; then
+    echo ""
+    echo "Vision projector not found: ./models/vision.mmproj.gguf (990 MB)"
+    read -rp "Download it now? (Y/n) " dl_mmproj
+    if [[ ! "$dl_mmproj" =~ ^[Nn]$ ]]; then
+      echo "Downloading vision projector..."
+      curl -L -o ./models/vision.mmproj.gguf "$MMPROJ_URL"
+    else
+      echo "Download it manually:"
+      echo "  curl -L -o ./models/vision.mmproj.gguf $MMPROJ_URL"
+    fi
+  fi
+
+  CAPTIONING_VARS="CAPTIONING_MODEL=$DEFAULT_MODEL
+CAPTIONING_MMPROJ=$DEFAULT_MMPROJ
+CAPTIONING_CTX_SIZE=8192
+CAPTIONING_N_PREDICT=1024"
 fi
 
 # Gateway port

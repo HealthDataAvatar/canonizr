@@ -54,8 +54,8 @@ services:
     volumes:
       - ./models:/models
     command: >
-      --model ${CAPTIONING_MODEL:-/models/gemma-4-e4b.gguf}
-      --mmproj ${CAPTIONING_MMPROJ:-/models/gemma-4-e4b-mmproj-f16.gguf}
+      --model ${CAPTIONING_MODEL:-/models/vision.gguf}
+      --mmproj ${CAPTIONING_MMPROJ:-/models/vision.mmproj.gguf}
       --host 0.0.0.0
       --port 8080
       --ctx-size ${CAPTIONING_CTX_SIZE:-8192}
