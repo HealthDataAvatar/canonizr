@@ -26,7 +26,8 @@ body {
 }
 
 #root {
-  height: 100vh;
+  min-height: 100dvh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -49,9 +50,9 @@ body {
 .main {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  padding: 24px;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  padding: 16px;
   min-height: 0;
 }
 
@@ -85,16 +86,16 @@ body {
 .dropzone {
   border: 2px dashed var(--border);
   border-radius: var(--radius);
-  padding: 48px 24px;
+  padding: 32px 16px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  min-height: 200px;
+  min-height: 160px;
 }
 
 .dropzone:hover,
@@ -156,7 +157,8 @@ body {
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease;
+  min-height: 44px;
 }
 
 .btn-primary {
@@ -234,6 +236,8 @@ body {
   border-collapse: collapse;
   margin-bottom: 1em;
   font-size: 14px;
+  display: block;
+  overflow-x: auto;
 }
 
 .markdown-output th,
@@ -303,4 +307,18 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+/* Desktop: side-by-side panels */
+@media (min-width: 768px) {
+  .main {
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    padding: 24px;
+  }
+
+  .dropzone {
+    padding: 48px 24px;
+    min-height: 200px;
+  }
 }
