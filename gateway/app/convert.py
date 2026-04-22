@@ -1,3 +1,5 @@
+import asyncio
+import functools
 import time
 
 from io import BytesIO
@@ -85,7 +87,11 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
 
     # Office docs MarkItDown handles directly
     if mime_type in MARKITDOWN_TYPES:
-        mit_result = markitdown.convert_stream(BytesIO(file_bytes), file_extension=_ext_from_filename(filename))
+        loop = asyncio.get_event_loop()
+        mit_result = await loop.run_in_executor(
+            None,
+            functools.partial(markitdown.convert_stream, BytesIO(file_bytes), file_extension=_ext_from_filename(filename)),
+        )
         elapsed = (time.time() - start_time) * 1000
         debug.append({"step": "markitdown", "elapsed_ms": elapsed, "md_length": len(mit_result.text_content)})
         return ConvertResult(
