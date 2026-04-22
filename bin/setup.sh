@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# This file registers the command line tool
+# and configures the .env file
 set -euo pipefail
 
 echo "=== Canonizr Pipeline Setup ==="
@@ -26,9 +28,11 @@ fi
 
 # Parse flags
 NO_CAPTIONING=false
+NO_LIBREOFFICE=false
 for arg in "$@"; do
   case "$arg" in
-    --no-captioning) NO_CAPTIONING=true ;;
+    --minimal) NO_CAPTIONING=true; NO_LIBREOFFICE=true ;;
+    --maximal) NO_CAPTIONING=false; NO_LIBREOFFICE=false ;;
   esac
 done
 
@@ -121,6 +125,19 @@ CAPTIONING_N_PREDICT=1024"
   fi
 fi
 
+# LibreOffice setup
+if [ "$NO_LIBREOFFICE" = true ]; then
+  enable_libreoffice="n"
+else
+  echo ""
+  read -rp "Enable LibreOffice? Needed for DOC, PPT, XLS, and Apple formats (~1 GB) (Y/n) " enable_libreoffice
+fi
+if [[ "$enable_libreoffice" =~ ^[Nn]$ ]]; then
+  LIBREOFFICE_ENABLED="false"
+else
+  LIBREOFFICE_ENABLED="true"
+fi
+
 # Gateway port
 echo ""
 read -rp "Gateway port [7005]: " gateway_port
@@ -129,6 +146,7 @@ gateway_port="${gateway_port:-7005}"
 # Write .env
 cat > .env <<EOF
 CAPTIONING_ENABLED=$CAPTIONING_ENABLED
+LIBREOFFICE_ENABLED=$LIBREOFFICE_ENABLED
 GATEWAY_PORT=$gateway_port
 EOF
 
@@ -142,6 +160,3 @@ echo "  .env written."
 echo ""
 echo "  Start the pipeline with: canonizr up"
 echo "  Stop the pipeline with: canonizr down"
-if [ "$CAPTIONING_ENABLED" = "true" ]; then
-  echo "  (captioning service will start automatically)"
-fi

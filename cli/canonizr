@@ -68,37 +68,37 @@ cmd_convert() {
   fi
 
   # Request markdown body with metadata in header
-  local tmpfile
+  local tmpfile tmpbody
   tmpfile=$(mktemp)
-  trap 'rm -f "$tmpfile"' RETURN
+  tmpbody=$(mktemp)
+  trap 'rm -f "$tmpfile" "$tmpbody"' RETURN
 
   local http_code metadata
-  if [[ "$output" == "-" ]]; then
-    # Pipe mode: write markdown to stdout via curl
-    metadata=$(curl -sf -D "$tmpfile" \
-      -H "Accept: text/markdown" \
-      -F "file=@${file}" \
-      "${BASE_URL}/convert" 2>/dev/null) || {
-      echo "Error: could not reach Canonizr at ${BASE_URL}" >&2
-      echo "Is the service running? Start it with: canonizr up" >&2
-      exit 1
-    }
-    # markdown went to stdout already via curl, extract metadata from headers
-    metadata=$(grep -i '^x-job-metadata:' "$tmpfile" | sed 's/^[^:]*: //' | tr -d '\r')
-  else
-    # File mode: write markdown directly to output file
-    http_code=$(curl -sf -o "$output" -D "$tmpfile" -w "%{http_code}" \
-      -H "Accept: text/markdown" \
-      -F "file=@${file}" \
-      "${BASE_URL}/convert" 2>/dev/null) || {
-      rm -f "$output"
-      echo "Error: could not reach Canonizr at ${BASE_URL}" >&2
-      echo "Is the service running? Start it with: canonizr up" >&2
-      exit 1
-    }
-    metadata=$(grep -i '^x-job-metadata:' "$tmpfile" | sed 's/^[^:]*: //' | tr -d '\r')
 
-    # Print metadata JSON to stdout
+  # Make the request — capture status code, headers, and body separately
+  http_code=$(curl -s -o "$tmpbody" -D "$tmpfile" -w "%{http_code}" \
+    -H "Accept: text/markdown" \
+    -F "file=@${file}" \
+    "${BASE_URL}/convert" 2>/dev/null) || {
+    echo "Error: could not reach Canonizr at ${BASE_URL}" >&2
+    echo "Is the service running? Start it with: canonizr up" >&2
+    exit 1
+  }
+
+  # Handle HTTP errors
+  if [[ "$http_code" -ge 400 ]]; then
+    echo "Error (HTTP $http_code): $(cat "$tmpbody")" >&2
+    exit 1
+  fi
+
+  metadata=$(grep -i '^x-job-metadata:' "$tmpfile" | sed 's/^[^:]*: //' | tr -d '\r')
+
+  if [[ "$output" == "-" ]]; then
+    # Pipe mode: markdown to stdout
+    cat "$tmpbody"
+  else
+    # File mode: move body to output, metadata to stdout
+    mv "$tmpbody" "$output"
     if [[ "$quiet" != "true" ]] && [[ -n "$metadata" ]]; then
       echo "$metadata"
     fi
@@ -112,6 +112,18 @@ cmd_health() {
   }
 }
 
+_profiles() {
+  # Build profile flags based on .env config
+  local profiles=""
+  if [ "${CAPTIONING_ENABLED:-true}" = "true" ] && [ -z "${CAPTIONING_ENDPOINT:-}" ]; then
+    profiles="$profiles --profile captioning"
+  fi
+  if [ "${LIBREOFFICE_ENABLED:-true}" = "true" ]; then
+    profiles="$profiles --profile libreoffice"
+  fi
+  echo "$profiles"
+}
+
 cmd_up() {
   local detach="-d"
   for arg in "$@"; do
@@ -122,16 +134,12 @@ cmd_up() {
 
   cd "$REPO_ROOT"
   source .env 2>/dev/null || true
-  if [ "${CAPTIONING_ENABLED:-true}" = "true" ] && [ -z "${CAPTIONING_ENDPOINT:-}" ]; then
-    docker compose --profile captioning up $detach --build
-  else
-    docker compose up $detach --build
-  fi
+  docker compose $(_profiles) up $detach --build
 }
 
 cmd_down() {
   cd "$REPO_ROOT"
-  docker compose --profile captioning down
+  docker compose --profile captioning --profile libreoffice down
 }
 
 if [[ $# -lt 1 ]]; then
