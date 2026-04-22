@@ -7,6 +7,9 @@ services:
       - "${GATEWAY_PORT:-7005}:8000"
     environment:
       - CAPTIONING_ENABLED=${CAPTIONING_ENABLED:-true}
+      - CAPTIONING_ENDPOINT=${CAPTIONING_ENDPOINT:-}
+      - CAPTIONING_API_KEY=${CAPTIONING_API_KEY:-}
+      - CAPTIONING_API_MODEL=${CAPTIONING_API_MODEL:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
       - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
@@ -49,6 +52,7 @@ services:
       start_period: 10s
 
   captioning:
+    profiles: ["captioning"]
     image: ghcr.io/ggml-org/llama.cpp:server
     volumes:
       - ./models:/models

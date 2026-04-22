@@ -60,45 +60,65 @@ if [[ "$enable_captioning" =~ ^[Nn]$ ]]; then
 else
   CAPTIONING_ENABLED="true"
 
-  DEFAULT_MODEL="/models/vision.gguf"
-  DEFAULT_MMPROJ="/models/vision.mmproj.gguf"
+  echo ""
+  echo "Captioning mode:"
+  echo "  1) Local — Gemma 4 via llama.cpp (~6 GB download)"
+  echo "  2) API  — Nebius, OpenAI, or compatible endpoint"
+  read -rp "Choose [1]: " captioning_mode
+  captioning_mode="${captioning_mode:-1}"
 
-  MODEL_URL="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
-  MMPROJ_URL="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf"
-
-  # Check if model files exist locally, offer to download if missing
-  mkdir -p ./models
-
-  if [ ! -f "./models/vision.gguf" ]; then
+  if [ "$captioning_mode" = "2" ]; then
+    # API mode
     echo ""
-    echo "Model file not found: ./models/vision.gguf (4.98 GB)"
-    read -rp "Download it now? (Y/n) " dl_model
-    if [[ ! "$dl_model" =~ ^[Nn]$ ]]; then
-      echo "Downloading vision model..."
-      curl -L -o ./models/vision.gguf "$MODEL_URL"
-    else
-      echo "Download it manually:"
-      echo "  curl -L -o ./models/vision.gguf $MODEL_URL"
-    fi
-  fi
+    read -rp "Endpoint URL: " captioning_endpoint
+    read -rp "API key: " captioning_api_key
+    read -rp "Model name (e.g. gpt-4o): " captioning_api_model
 
-  if [ ! -f "./models/vision.mmproj.gguf" ]; then
-    echo ""
-    echo "Vision projector not found: ./models/vision.mmproj.gguf (990 MB)"
-    read -rp "Download it now? (Y/n) " dl_mmproj
-    if [[ ! "$dl_mmproj" =~ ^[Nn]$ ]]; then
-      echo "Downloading vision projector..."
-      curl -L -o ./models/vision.mmproj.gguf "$MMPROJ_URL"
-    else
-      echo "Download it manually:"
-      echo "  curl -L -o ./models/vision.mmproj.gguf $MMPROJ_URL"
-    fi
-  fi
+    CAPTIONING_VARS="CAPTIONING_ENDPOINT=$captioning_endpoint
+CAPTIONING_API_KEY=$captioning_api_key
+CAPTIONING_API_MODEL=$captioning_api_model"
+  else
+    # Local mode
+    DEFAULT_MODEL="/models/vision.gguf"
+    DEFAULT_MMPROJ="/models/vision.mmproj.gguf"
 
-  CAPTIONING_VARS="CAPTIONING_MODEL=$DEFAULT_MODEL
+    MODEL_URL="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
+    MMPROJ_URL="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf"
+
+    # Check if model files exist locally, offer to download if missing
+    mkdir -p ./models
+
+    if [ ! -f "./models/vision.gguf" ]; then
+      echo ""
+      echo "Model file not found: ./models/vision.gguf (4.98 GB)"
+      read -rp "Download it now? (Y/n) " dl_model
+      if [[ ! "$dl_model" =~ ^[Nn]$ ]]; then
+        echo "Downloading vision model..."
+        curl -L -o ./models/vision.gguf "$MODEL_URL"
+      else
+        echo "Download it manually:"
+        echo "  curl -L -o ./models/vision.gguf $MODEL_URL"
+      fi
+    fi
+
+    if [ ! -f "./models/vision.mmproj.gguf" ]; then
+      echo ""
+      echo "Vision projector not found: ./models/vision.mmproj.gguf (990 MB)"
+      read -rp "Download it now? (Y/n) " dl_mmproj
+      if [[ ! "$dl_mmproj" =~ ^[Nn]$ ]]; then
+        echo "Downloading vision projector..."
+        curl -L -o ./models/vision.mmproj.gguf "$MMPROJ_URL"
+      else
+        echo "Download it manually:"
+        echo "  curl -L -o ./models/vision.mmproj.gguf $MMPROJ_URL"
+      fi
+    fi
+
+    CAPTIONING_VARS="CAPTIONING_MODEL=$DEFAULT_MODEL
 CAPTIONING_MMPROJ=$DEFAULT_MMPROJ
 CAPTIONING_CTX_SIZE=8192
 CAPTIONING_N_PREDICT=1024"
+  fi
 fi
 
 # Gateway port
