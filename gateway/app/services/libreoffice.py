@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from io import BytesIO
 
@@ -8,6 +9,10 @@ from fastapi import HTTPException
 logger = logging.getLogger(__name__)
 
 URL = "http://libreoffice:8000/convert"
+
+
+def is_available() -> bool:
+    return os.environ.get("LIBREOFFICE_ENABLED", "true").lower() == "true"
 
 
 async def convert(file_bytes: bytes, mime_type: str, filename: str, target_format: str, timeout: float, debug: list[dict] | None = None) -> tuple[bytes, str]:

@@ -104,6 +104,11 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
 
     # Legacy formats — LibreOffice converts, then re-process
     if mime_type in LIBREOFFICE_TYPES:
+        if not libreoffice.is_available():
+            raise ServiceNotConfigured(
+                f"This file type ({mime_type}) requires LibreOffice. "
+                "Rerun setup to enable it."
+            )
         target = LIBREOFFICE_TYPES[mime_type]
         converted_bytes, converted_mime = await libreoffice.convert(
             file_bytes, mime_type, filename, target, timeout, debug

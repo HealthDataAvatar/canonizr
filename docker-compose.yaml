@@ -10,6 +10,7 @@ services:
       - CAPTIONING_ENDPOINT=${CAPTIONING_ENDPOINT:-}
       - CAPTIONING_API_KEY=${CAPTIONING_API_KEY:-}
       - CAPTIONING_API_MODEL=${CAPTIONING_API_MODEL:-}
+      - LIBREOFFICE_ENABLED=${LIBREOFFICE_ENABLED:-true}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-50}
       - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
@@ -74,6 +75,7 @@ services:
       start_period: 30s
 
   libreoffice:
+    profiles: ["libreoffice"]
     build:
       context: ./libreoffice
       dockerfile: libreoffice.dockerfile

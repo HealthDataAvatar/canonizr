@@ -32,12 +32,12 @@ See [filetypes.md](filetypes.md) for the full list of supported formats.
 If you have run `./bin/setup.sh` then `canonizr` will be added to your PATH.
 
 ```bash
-canonizr convert <file>           # writes <file>.md, job JSON to stdout
+canonizr convert <file>           # writes <file>.md, metadata to stdout
 canonizr convert <file> -o -      # markdown to stdout (for piping)
 canonizr convert <file> -o a.md   # custom output path
 canonizr convert <file> -f        # overwrite existing output
 canonizr convert <file> -q        # quiet, no job JSON
-canonizr up [--fg]                # start the pipeline (--fg for logs)
+canonizr up [--fg]                # start the pipeline (--fg to keep in foreground)
 canonizr down                     # stop the pipeline
 canonizr health                   # check if the service is running
 ```
@@ -61,14 +61,13 @@ Then open http://localhost:5173.
 | Script | Purpose |
 |---|---|
 | `./bin/setup.sh` | One-time configuration (writes `.env`) |
-| `./bin/setup.sh --no-captioning` | Setup without the captioning VLM (~6 GB smaller) |
-| `./bin/up.sh` | Start the pipeline (delegates to `canonizr up`) |
-| `./bin/down.sh` | Stop the pipeline (delegates to `canonizr down`) |
+| `./bin/setup.sh --minimal` | Setup without captioning or LibreOffice (~1 GB) |
+| `./bin/setup.sh --maximal` | Setup with all optional services |
 
 ## Requirements
 
 - Docker + Docker Compose
-- ~8 GB disk (~2 GB without captioning)
+- ~1–8 GB disk depending on configuration
 
 ## Configuration
 
@@ -101,8 +100,8 @@ Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, Nebius, etc.).
 |---|---|
 | **Gateway** | Format detection, routing, MarkItDown, pymupdf, Pillow |
 | **Docling** | PDF layout analysis, table extraction, figure classification |
-| **Captioning** | VLM for images, figures, scanned pages (local Gemma 4 or external API) |
-| **LibreOffice** | Legacy format conversion (DOC, PPT, XLS, Apple formats) |
+| **Captioning** | VLM for images, figures, scanned pages (local Gemma 4 or external API). Optional. |
+| **LibreOffice** | Legacy format conversion (DOC, PPT, XLS, Apple formats). Optional. |
 
 Only the gateway port is exposed. All services communicate internally over the Docker network.
 
