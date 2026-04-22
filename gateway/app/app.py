@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from fastapi import FastAPI, File, Query, UploadFile, HTTPException
@@ -12,6 +13,7 @@ app = FastAPI()
 CORS_ORIGINS = [o for o in os.environ.get("CORS_ORIGINS", "").split(",") if o]
 MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE_MB", "50")) * 1024 * 1024
 REQUEST_TIMEOUT = float(os.environ.get("REQUEST_TIMEOUT", "300.0"))
+_convert_semaphore = asyncio.Semaphore(int(os.environ.get("MAX_CONCURRENT_CONVERSIONS", "4")))
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -52,14 +54,15 @@ async def convert_document(
     if verbose:
         debug.append({"step": "detect", "mime_type": mime_type, "file_size_bytes": size})
 
-    try:
-        result = await convert(file_bytes, mime_type, file.filename or "document", REQUEST_TIMEOUT, debug)
-        result.detected_type = mime_type
-        return result.to_dict(verbose=verbose)
-    except UnsupportedFormat as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except ServiceNotConfigured as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    async with _convert_semaphore:
+        try:
+            result = await convert(file_bytes, mime_type, file.filename or "document", REQUEST_TIMEOUT, debug)
+            result.detected_type = mime_type
+            return result.to_dict(verbose=verbose)
+        except UnsupportedFormat as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except ServiceNotConfigured as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
 
 @app.get("/health")
