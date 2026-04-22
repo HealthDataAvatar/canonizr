@@ -10,23 +10,31 @@ usage() {
   echo "Usage: canonizr <command>"
   echo ""
   echo "Commands:"
-  echo "  up        Start the pipeline"
+  echo "  up [--fg] Start the pipeline (--fg for foreground with logs)"
   echo "  down      Stop the pipeline"
   echo "  convert   Convert a file to markdown"
   echo "  health    Check if the service is running"
   echo ""
   echo "Options:"
-  echo "  convert [--json] <file>"
+  echo "  convert [-o <file>] [-f] [-q] <file>"
+  echo "    -o <file>   Output path (default: <input>.md)"
+  echo "    -o -        Write markdown to stdout instead of file"
+  echo "    -f          Overwrite output file if it exists"
+  echo "    -q          Quiet mode, suppress job summary"
   exit 1
 }
 
 cmd_convert() {
-  local json_mode=false
+  local force=false
+  local quiet=false
+  local output=""
   local file=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --json) json_mode=true; shift ;;
+      -f|--force) force=true; shift ;;
+      -q|--quiet) quiet=true; shift ;;
+      -o) shift; output="$1"; shift ;;
       *) file="$1"; shift ;;
     esac
   done
@@ -40,16 +48,60 @@ cmd_convert() {
     exit 1
   fi
 
-  response=$(curl -sf "${BASE_URL}/convert" -F "file=@${file}" 2>&1) || {
-    echo "Error: could not reach Canonizr at ${BASE_URL}" >&2
-    echo "Is the service running? Start it with: canonizr up" >&2
-    exit 1
-  }
+  # Skip files that are already plaintext/markdown
+  case "${file##*.}" in
+    md|markdown|txt|csv|json|xml|html|py|java|c|h)
+      echo "${file} is already a text format, skipping" >&2
+      exit 0
+      ;;
+  esac
 
-  if [[ "$json_mode" == "true" ]]; then
-    echo "$response"
+  # Default output: <input>.md (e.g. report.pdf -> report.pdf.md)
+  if [[ -z "$output" ]]; then
+    output="${file}.md"
+  fi
+
+  # Check for existing output (unless writing to stdout or force)
+  if [[ "$output" != "-" ]] && [[ "$force" != "true" ]] && [[ -f "$output" ]]; then
+    echo "${output} already exists, skipping (use -f to overwrite)" >&2
+    exit 0
+  fi
+
+  # Request markdown body with metadata in header
+  local tmpfile
+  tmpfile=$(mktemp)
+  trap 'rm -f "$tmpfile"' RETURN
+
+  local http_code metadata
+  if [[ "$output" == "-" ]]; then
+    # Pipe mode: write markdown to stdout via curl
+    metadata=$(curl -sf -D "$tmpfile" \
+      -H "Accept: text/markdown" \
+      -F "file=@${file}" \
+      "${BASE_URL}/convert" 2>/dev/null) || {
+      echo "Error: could not reach Canonizr at ${BASE_URL}" >&2
+      echo "Is the service running? Start it with: canonizr up" >&2
+      exit 1
+    }
+    # markdown went to stdout already via curl, extract metadata from headers
+    metadata=$(grep -i '^x-job-metadata:' "$tmpfile" | sed 's/^[^:]*: //' | tr -d '\r')
   else
-    echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['markdown'])"
+    # File mode: write markdown directly to output file
+    http_code=$(curl -sf -o "$output" -D "$tmpfile" -w "%{http_code}" \
+      -H "Accept: text/markdown" \
+      -F "file=@${file}" \
+      "${BASE_URL}/convert" 2>/dev/null) || {
+      rm -f "$output"
+      echo "Error: could not reach Canonizr at ${BASE_URL}" >&2
+      echo "Is the service running? Start it with: canonizr up" >&2
+      exit 1
+    }
+    metadata=$(grep -i '^x-job-metadata:' "$tmpfile" | sed 's/^[^:]*: //' | tr -d '\r')
+
+    # Print metadata JSON to stdout
+    if [[ "$quiet" != "true" ]] && [[ -n "$metadata" ]]; then
+      echo "$metadata"
+    fi
   fi
 }
 
@@ -61,18 +113,25 @@ cmd_health() {
 }
 
 cmd_up() {
+  local detach="-d"
+  for arg in "$@"; do
+    case "$arg" in
+      --fg) detach="" ;;
+    esac
+  done
+
   cd "$REPO_ROOT"
   source .env 2>/dev/null || true
-  if [ "${CAPTIONING_ENABLED:-true}" = "false" ]; then
-    docker compose up -d --build gateway docling libreoffice
+  if [ "${CAPTIONING_ENABLED:-true}" = "true" ] && [ -z "${CAPTIONING_ENDPOINT:-}" ]; then
+    docker compose --profile captioning up $detach --build
   else
-    docker compose up -d --build
+    docker compose up $detach --build
   fi
 }
 
 cmd_down() {
   cd "$REPO_ROOT"
-  docker compose down
+  docker compose --profile captioning down
 }
 
 if [[ $# -lt 1 ]]; then
@@ -80,7 +139,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 case "$1" in
-  up) cmd_up ;;
+  up) shift; cmd_up "$@" ;;
   down) cmd_down ;;
   convert) shift; cmd_convert "$@" ;;
   health) cmd_health ;;

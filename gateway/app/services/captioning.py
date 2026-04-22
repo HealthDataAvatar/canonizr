@@ -11,16 +11,30 @@ from ..response import ConvertResult
 
 logger = logging.getLogger(__name__)
 
-ENDPOINT = "http://captioning:8080/v1/chat/completions"
+ENDPOINT = os.environ.get(
+    "CAPTIONING_ENDPOINT",
+    "http://captioning:8080/v1/chat/completions",
+)
+API_KEY = os.environ.get("CAPTIONING_API_KEY", "")
+API_MODEL = os.environ.get("CAPTIONING_API_MODEL", "")
 
 
 def is_available() -> bool:
     return os.environ.get("CAPTIONING_ENABLED", "true").lower() == "true"
 
 
+def get_config() -> dict:
+    """Return captioning config safe for inclusion in warnings/logs."""
+    return {
+        "endpoint": ENDPOINT,
+        "api_key": f"set ({len(API_KEY)} chars)" if API_KEY else "not set",
+        "model": API_MODEL or "not set",
+    }
+
+
 async def _call(image_b64: str, mime_type: str, prompt: str, max_tokens: int, timeout: float) -> tuple[dict, float]:
     """Send a base64-encoded image to the captioning service."""
-    payload = {
+    payload: dict = {
         "messages": [
             {
                 "role": "user",
@@ -40,10 +54,16 @@ async def _call(image_b64: str, mime_type: str, prompt: str, max_tokens: int, ti
         ],
         "max_tokens": max_tokens,
     }
+    if API_MODEL:
+        payload["model"] = API_MODEL
+
+    headers = {}
+    if API_KEY:
+        headers["Authorization"] = f"Bearer {API_KEY}"
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         start_time = time.time()
-        response = await client.post(ENDPOINT, json=payload)
+        response = await client.post(ENDPOINT, json=payload, headers=headers)
         elapsed = (time.time() - start_time) * 1000
 
         if response.status_code != 200:

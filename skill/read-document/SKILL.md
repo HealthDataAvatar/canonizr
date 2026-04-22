@@ -7,21 +7,31 @@ Read any document using the Canonizr pipeline. Supports PDFs, images, office fil
 
 ## Using Canonizr
 
-You can pass documents to Canonizr via CLI.
+Convert a document to markdown:
 
 ```sh
 canonizr convert document.pdf
 ```
 
-The output of the above command is a direct markdown transcript.
+This writes the markdown to `document.pdf.md` and prints a job summary (JSON) to stdout. If the output file already exists, the conversion is skipped — so it's safe to run repeatedly.
 
-Failed attempts to convert a file return an error message. Depending on context you may wish to store the output in an adjacent `.md` file to avoid re-processing.
+To overwrite an existing output:
 
-Supported file formats include PDFs, images (which will be transcribed), and office files.
+```sh
+canonizr convert document.pdf -f
+```
+
+To get the markdown directly to stdout (for piping):
+
+```sh
+canonizr convert document.pdf -o -
+```
+
+The job JSON includes a `completeness` field (`"full"` or `"partial"`) and a `warnings` array describing any issues (e.g. images that could not be captioned).
 
 ## Debugging
 
-You can check if the Canonizr pipeline is running by using the CLI:
+Check if the Canonizr pipeline is running:
 
 ```sh
 canonizr health
@@ -37,10 +47,4 @@ And stop it with:
 
 ```sh
 canonizr down
-```
-
-You can get a full JSON response with metadata (instead of just markdown) using the `--json` flag:
-
-```sh
-canonizr convert --json document.pdf
 ```

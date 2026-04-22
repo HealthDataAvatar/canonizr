@@ -2,6 +2,7 @@ import base64
 import logging
 import re
 import time
+from dataclasses import dataclass
 from enum import Enum
 from io import BytesIO
 
@@ -78,18 +79,27 @@ def _image_dimensions(image_b64: str) -> tuple[int, int]:
     return img.size
 
 
+@dataclass
+class CaptionResult:
+    markdown: str
+    captioned: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+
 async def _caption_images(
     md_content: str, pictures: list[dict], timeout: float, debug: list[dict],
-) -> tuple[str, int, int]:
-    """Replace base64 images in markdown with captions. Returns (markdown, captioned, skipped)."""
+) -> CaptionResult:
+    """Replace base64 images in markdown with captions."""
     matches = list(IMAGE_RE.finditer(md_content))
     if not matches:
-        return md_content, 0, 0
+        return CaptionResult(markdown=md_content)
 
     skip_indices = _get_skip_indices(pictures)
 
     captioned = 0
     skipped = 0
+    failed = 0
     result = md_content
     image_details = []
 
@@ -131,10 +141,11 @@ async def _caption_images(
             replacement = f"![{caption_text}]"
             captioned += 1
             image_details.append({"index": index, "dimensions": [width, height], "action": "captioned"})
-        except Exception:
-            logger.warning("Captioning failed for image at index %d, using fallback", index)
+        except Exception as e:
+            logger.warning("Captioning failed for image at index %d: %s", index, e)
             replacement = f"![{alt_text or 'Image'}]"
-            image_details.append({"index": index, "dimensions": [width, height], "action": "fallback"})
+            failed += 1
+            image_details.append({"index": index, "dimensions": [width, height], "action": "fallback", "error": str(e)})
 
         result = result[:match.start()] + replacement + result[match.end():]
 
@@ -146,7 +157,7 @@ async def _caption_images(
         "images": image_details,
     })
 
-    return result, captioned, skipped
+    return CaptionResult(markdown=result, captioned=captioned, skipped=skipped, failed=failed)
 
 
 async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list[dict] | None = None) -> ConvertResult:
@@ -193,22 +204,52 @@ async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list
     })
 
     actions = ["docling"]
+    warnings: list[dict] = []
     images_captioned = 0
     images_skipped = 0
 
-    if captioning.is_available():
-        md_content, images_captioned, images_skipped = await _caption_images(
-            md_content, pictures, timeout, debug
-        )
-        if images_captioned or images_skipped:
-            actions.append(f"captioning ({images_captioned} captioned, {images_skipped} skipped)")
+    image_count = len(list(IMAGE_RE.finditer(md_content)))
 
+    if captioning.is_available() and image_count > 0:
+        cap = await _caption_images(md_content, pictures, timeout, debug)
+        md_content = cap.markdown
+        images_captioned = cap.captioned
+        images_skipped = cap.skipped
+        parts = []
+        if cap.captioned:
+            parts.append(f"{cap.captioned} captioned")
+        if cap.skipped:
+            parts.append(f"{cap.skipped} skipped")
+        if cap.failed:
+            parts.append(f"{cap.failed} failed")
+        actions.append(f"captioning ({', '.join(parts)})")
+        if cap.failed:
+            # Extract error from first failed image for the warning message
+            errors = [d.get("error", "") for d in debug[-1].get("images", []) if d.get("action") == "fallback"]
+            reason = errors[0] if errors else "unknown error"
+            warnings.append({
+                "code": "captioning_failed",
+                "message": f"{cap.failed} image(s) could not be captioned: {reason}",
+                "count": cap.failed,
+                "config": captioning.get_config(),
+            })
+    elif image_count > 0:
+        warnings.append({
+            "code": "captioning_unavailable",
+            "message": f"{image_count} image(s) have no descriptions (captioning not available)",
+            "count": image_count,
+            "config": captioning.get_config(),
+        })
+
+    completeness = "partial" if warnings else "full"
     elapsed = (time.time() - start_time) * 1000
 
     return ConvertResult(
         markdown=md_content,
         detected_type=mime_type,
         actions=actions,
+        warnings=warnings,
+        completeness=completeness,
         processing_time_ms=elapsed,
         images_captioned=images_captioned,
         images_skipped=images_skipped,

@@ -1,8 +1,9 @@
 import asyncio
 import os
 
-from fastapi import FastAPI, File, Query, UploadFile, HTTPException
+from fastapi import FastAPI, File, Header, Query, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 import magic
 from io import BytesIO
 
@@ -28,6 +29,7 @@ if CORS_ORIGINS:
 async def convert_document(
     file: UploadFile = File(...),
     verbose: bool = Query(False),
+    accept: str = Header("application/json"),
 ):
     """Convert a file to markdown."""
     content = BytesIO()
@@ -58,6 +60,14 @@ async def convert_document(
         try:
             result = await convert(file_bytes, mime_type, file.filename or "document", REQUEST_TIMEOUT, debug)
             result.detected_type = mime_type
+
+            if "text/markdown" in accept:
+                return Response(
+                    content=result.markdown,
+                    media_type="text/markdown; charset=utf-8",
+                    headers={"X-Job-Metadata": result.metadata_json()},
+                )
+
             return result.to_dict(verbose=verbose)
         except UnsupportedFormat as e:
             raise HTTPException(status_code=400, detail=str(e))
