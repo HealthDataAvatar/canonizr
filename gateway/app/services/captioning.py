@@ -4,6 +4,7 @@ import os
 import time
 
 import httpx
+from fastapi import HTTPException
 
 from ..imageconv import to_png
 from ..prompts import CAPTION, TRANSCRIBE
@@ -11,10 +12,7 @@ from ..response import ConvertResult
 
 logger = logging.getLogger(__name__)
 
-ENDPOINT = os.environ.get(
-    "CAPTIONING_ENDPOINT",
-    "http://captioning:8080/v1/chat/completions",
-)
+ENDPOINT = os.environ.get("CAPTIONING_ENDPOINT") or "http://captioning:8080/v1/chat/completions"
 API_KEY = os.environ.get("CAPTIONING_API_KEY", "")
 API_MODEL = os.environ.get("CAPTIONING_API_MODEL", "")
 
@@ -63,14 +61,18 @@ async def _call(image_b64: str, mime_type: str, prompt: str, max_tokens: int, ti
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         start_time = time.time()
-        response = await client.post(ENDPOINT, json=payload, headers=headers)
+        try:
+            response = await client.post(ENDPOINT, json=payload, headers=headers)
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="Captioning service timeout")
+        except httpx.ConnectError:
+            raise HTTPException(status_code=502, detail=f"Failed to reach captioning service at {ENDPOINT}")
         elapsed = (time.time() - start_time) * 1000
 
         if response.status_code != 200:
-            raise httpx.HTTPStatusError(
-                f"Captioning service error {response.status_code}: {response.text}",
-                request=response.request,
-                response=response,
+            raise HTTPException(
+                status_code=502,
+                detail=f"Captioning service error {response.status_code}: {response.text}",
             )
 
         return response.json(), elapsed
