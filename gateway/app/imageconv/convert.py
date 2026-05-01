@@ -6,14 +6,12 @@ from PIL import Image
 NATIVE_TYPES = {
     "image/jpeg",
     "image/png",
-    "image/webp",
-    "image/gif",
-    "image/bmp",
-    "image/tiff",
 }
 
+MULTIPAGE_TYPES = {"image/tiff"}
 
-def to_png(image_bytes: bytes, mime_type: str) -> tuple[bytes, str]:
+
+def to_native(image_bytes: bytes, mime_type: str) -> tuple[bytes, str]:
     """Convert image bytes to PNG if the format isn't natively supported by the VLM.
     Returns (converted_bytes, mime_type)."""
     if mime_type in NATIVE_TYPES:
@@ -23,3 +21,20 @@ def to_png(image_bytes: bytes, mime_type: str) -> tuple[bytes, str]:
     buf = BytesIO()
     img.convert("RGB").save(buf, format="PNG")
     return buf.getvalue(), "image/png"
+
+
+def extract_pages(image_bytes: bytes) -> list[tuple[bytes, str]]:
+    """Extract all pages from a multi-page image (e.g. TIFF) as PNG.
+    Returns a list of (image_bytes, mime_type) tuples."""
+    img = Image.open(BytesIO(image_bytes))
+    pages = []
+    for i in range(getattr(img, "n_frames", 1)):
+        img.seek(i)
+        buf = BytesIO()
+        img.convert("RGB").save(buf, format="PNG")
+        pages.append((buf.getvalue(), "image/png"))
+    return pages
+
+
+def is_multipage(mime_type: str) -> bool:
+    return mime_type in MULTIPAGE_TYPES

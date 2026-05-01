@@ -80,6 +80,19 @@ def make_pdf_with_images(images: list[EmbeddedImage], text: str = "Document with
     return buf.getvalue()
 
 
+def make_tiff(pages: list[str]) -> bytes:
+    """Generate a multi-page TIFF with text drawn on each page."""
+    frames = []
+    for text in pages:
+        img = Image.new("RGB", (200, 100), color="white")
+        draw = ImageDraw.Draw(img)
+        draw.text((10, 40), text, fill="black")
+        frames.append(img)
+    buf = io.BytesIO()
+    frames[0].save(buf, format="TIFF", save_all=True, append_images=frames[1:])
+    return buf.getvalue()
+
+
 def make_docx(text: str = "This is a test Word document.") -> bytes:
     """Generate a simple DOCX."""
     doc = Document()
