@@ -7,7 +7,7 @@ import httpx
 from fastapi import HTTPException
 
 from . import captioning
-from .image_postprocess import CaptionResult, ImageOutcome, IMAGE_RE, caption_images
+from .image_postprocess import CaptionResult, IMAGE_RE, caption_images, label_images
 from ..response import ConvertResult
 
 logger = logging.getLogger(__name__)
@@ -59,30 +59,17 @@ async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list
     })
 
     actions = ["docling"]
-    warnings: list[dict] = []
     cap = CaptionResult(markdown=md_content)
 
     image_count = len(list(IMAGE_RE.finditer(md_content)))
 
-    if captioning.is_available() and image_count > 0:
-        cap = await caption_images(md_content, pictures, timeout, debug)
-        actions.append("captioning")
-        if cap.failed:
-            failed_details = [d for d in debug[-1].get("images", []) if d.get("outcome") == ImageOutcome.FAILED_UPSTREAM.value]
-            reason = failed_details[0].get("error", "unknown error") if failed_details else "unknown error"
-            warnings.append({
-                "code": "captioning_failed",
-                "message": f"{cap.failed} image(s) could not be captioned: {reason}",
-                "count": cap.failed,
-                "config": captioning.get_config(),
-            })
-    elif image_count > 0:
-        warnings.append({
-            "code": "captioning_unavailable",
-            "message": f"{image_count} image(s) have no descriptions (captioning not available)",
-            "count": image_count,
-            "config": captioning.get_config(),
-        })
+    if image_count > 0:
+        if captioning.is_available():
+            cap = await caption_images(md_content, pictures, timeout, debug)
+            actions.append("captioning")
+        else:
+            cap = label_images(md_content, pictures)
+            actions.append("labelling")
 
     elapsed = (time.time() - start_time) * 1000
 
@@ -90,12 +77,11 @@ async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list
         markdown=cap.markdown,
         detected_type=mime_type,
         actions=actions,
-        warnings=warnings,
-        completeness="partial" if warnings else "full",
         processing_time_ms=elapsed,
         images_captioned=cap.captioned,
         images_skipped=cap.skipped,
         images_errored=cap.errored,
-        images_failed=cap.failed,
+        captioning_prompt_tokens=cap.prompt_tokens,
+        captioning_completion_tokens=cap.completion_tokens,
         debug=debug,
     )

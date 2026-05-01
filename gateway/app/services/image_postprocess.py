@@ -59,6 +59,14 @@ SKIP_LABELS = {
 SKIP_LABEL_VALUES = {label.value for label in SKIP_LABELS}
 
 
+class CaptioningUpstreamError(Exception):
+    """Raised when the captioning service fails for an image."""
+    def __init__(self, index: int, cause: Exception):
+        self.index = index
+        self.cause = cause
+        super().__init__(f"Captioning failed for image at index {index}: {cause}")
+
+
 def _get_skip_indices(pictures: list[dict]) -> set[int]:
     """Return indices of pictures that should be skipped based on classification labels."""
     skip = set()
@@ -76,13 +84,21 @@ def _image_dimensions(image_b64: str) -> tuple[int, int]:
     return img.size
 
 
+def _get_label(pictures: list[dict], index: int) -> str:
+    """Get the first classification label for a picture, title-cased."""
+    labels = {a.get("label") for a in pictures[index].get("annotations", []) if a.get("label")}
+    label = next(iter(labels), "Image")
+    return label.replace("_", " ").title()
+
+
 class ImageOutcome(str, Enum):
     """Outcome of processing a single image in the pipeline."""
     CAPTIONED = "captioned"
     SKIPPED_DECORATIVE = "skipped_decorative"
     SKIPPED_TOO_SMALL = "skipped_too_small"
     ERRORED_DECODE = "errored_decode"
-    FAILED_UPSTREAM = "failed_upstream"
+    LABELLED = "labelled"
+    NEEDS_CAPTION = "needs_caption"
 
 
 @dataclass
@@ -91,76 +107,54 @@ class CaptionResult:
     captioned: int = 0
     skipped: int = 0
     errored: int = 0
-    failed: int = 0
+    labelled: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
+def _classify_images(md_content: str, pictures: list[dict]) -> list[dict]:
+    """Classify each embedded image. Returns a list of entries in forward order.
 
-async def caption_images(
-    md_content: str, pictures: list[dict], timeout: float, debug: list[dict],
-) -> CaptionResult:
-    """Replace base64 images in markdown with captions."""
+    Each entry has: index, match, mime_type, image_b64, and either an outcome
+    with replacement, or outcome=NEEDS_CAPTION for content images."""
     matches = list(IMAGE_RE.finditer(md_content))
-    if not matches:
-        return CaptionResult(markdown=md_content)
-
     skip_indices = _get_skip_indices(pictures)
-    semaphore = asyncio.Semaphore(CAPTIONING_CONCURRENCY)
-
-    # First pass: classify each image and collect captioning tasks
-    per_image: list[dict] = []  # one entry per match, in forward order
-    tasks: list[tuple[int, asyncio.Task]] = []
-
-    async def _caption_one(image_b64: str, mime_type: str) -> str:
-        async with semaphore:
-            return await captioning.caption_text(image_b64, mime_type, timeout)
+    entries = []
 
     for index, match in enumerate(matches):
-        alt_text = match.group(1)
         mime_type = match.group(2)
         image_b64 = match.group(3)
-        entry: dict = {"index": index, "alt_text": alt_text, "match": match}
+        entry: dict = {"index": index, "match": match, "mime_type": mime_type, "image_b64": image_b64}
 
         if index in skip_indices:
-            labels = {a.get("label") for a in pictures[index].get("annotations", []) if a.get("label")}
-            label = next(iter(labels), "Image")
-            entry["replacement"] = f"![{label.replace('_', ' ').title()}]"
+            entry["replacement"] = f"![{_get_label(pictures, index)}]"
             entry["outcome"] = ImageOutcome.SKIPPED_DECORATIVE
-            entry["label"] = label
         else:
             try:
                 width, height = _image_dimensions(image_b64)
             except Exception:
                 logger.warning("Could not decode image at index %d", index)
+                entry["replacement"] = "![Image corrupted]"
                 entry["outcome"] = ImageOutcome.ERRORED_DECODE
             else:
                 entry["dimensions"] = [width, height]
                 if width < MIN_IMAGE_DIMENSION or height < MIN_IMAGE_DIMENSION:
                     entry["outcome"] = ImageOutcome.SKIPPED_TOO_SMALL
                 else:
-                    task = asyncio.create_task(_caption_one(image_b64, mime_type))
-                    tasks.append((index, task))
+                    entry["outcome"] = ImageOutcome.NEEDS_CAPTION
 
-        per_image.append(entry)
+        entries.append(entry)
 
-    # Await all captioning calls concurrently
-    for index, task in tasks:
-        entry = per_image[index]
-        try:
-            text = await task
-            entry["replacement"] = f"![{text}]"
-            entry["outcome"] = ImageOutcome.CAPTIONED
-        except Exception as e:
-            logger.warning("Captioning failed for image at index %d: %s", index, e)
-            entry["replacement"] = f"![{entry['alt_text'] or 'Image'}]"
-            entry["outcome"] = ImageOutcome.FAILED_UPSTREAM
-            entry["error"] = str(e)
+    return entries
 
-    # Second pass: apply replacements in reverse order to preserve offsets
+
+def _apply_replacements(md_content: str, entries: list[dict]) -> tuple[str, dict[ImageOutcome, int], list[dict]]:
+    """Apply replacements in reverse order. Returns (result_markdown, counts, image_details)."""
     counts: dict[ImageOutcome, int] = {o: 0 for o in ImageOutcome}
     image_details = []
     result = md_content
 
-    for entry in reversed(per_image):
+    for entry in reversed(entries):
         match = entry["match"]
         replacement = entry.get("replacement")
         outcome = entry["outcome"]
@@ -174,17 +168,56 @@ async def caption_images(
         detail: dict = {"index": entry["index"], "outcome": outcome.value}
         if "dimensions" in entry:
             detail["dimensions"] = entry["dimensions"]
-        if "label" in entry:
-            detail["label"] = entry["label"]
-        if "error" in entry:
-            detail["error"] = entry["error"]
         image_details.append(detail)
+
+    return result, counts, image_details
+
+
+async def caption_images(
+    md_content: str, pictures: list[dict], timeout: float, debug: list[dict],
+) -> CaptionResult:
+    """Replace base64 images in markdown with captions. Raises CaptioningUpstreamError on failure."""
+    entries = _classify_images(md_content, pictures)
+    if not entries:
+        return CaptionResult(markdown=md_content)
+
+    semaphore = asyncio.Semaphore(CAPTIONING_CONCURRENCY)
+    tasks: list[tuple[int, asyncio.Task]] = []
+
+    async def _caption_one(image_b64: str, mime_type: str):
+        async with semaphore:
+            return await captioning.caption_text(image_b64, mime_type, timeout)
+
+    for entry in entries:
+        if entry["outcome"] == ImageOutcome.NEEDS_CAPTION:
+            task = asyncio.create_task(_caption_one(entry["image_b64"], entry["mime_type"]))
+            tasks.append((entry["index"], task))
+
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+
+    for index, task in tasks:
+        entry = entries[index]
+        try:
+            result = await task
+            entry["replacement"] = f"![{result.text}]"
+            entry["outcome"] = ImageOutcome.CAPTIONED
+            total_prompt_tokens += result.prompt_tokens
+            total_completion_tokens += result.completion_tokens
+        except Exception as e:
+            for _, remaining in tasks:
+                remaining.cancel()
+            raise CaptioningUpstreamError(index, e) from e
+
+    result, counts, image_details = _apply_replacements(md_content, entries)
 
     debug.append({
         "step": "captioning",
-        "md_image_count": len(matches),
+        "md_image_count": len(entries),
         "captioned": counts[ImageOutcome.CAPTIONED],
         "skipped": counts[ImageOutcome.SKIPPED_DECORATIVE] + counts[ImageOutcome.SKIPPED_TOO_SMALL],
+        "prompt_tokens": total_prompt_tokens,
+        "completion_tokens": total_completion_tokens,
         "images": image_details,
     })
 
@@ -193,5 +226,28 @@ async def caption_images(
         captioned=counts[ImageOutcome.CAPTIONED],
         skipped=counts[ImageOutcome.SKIPPED_DECORATIVE] + counts[ImageOutcome.SKIPPED_TOO_SMALL],
         errored=counts[ImageOutcome.ERRORED_DECODE],
-        failed=counts[ImageOutcome.FAILED_UPSTREAM],
+        prompt_tokens=total_prompt_tokens,
+        completion_tokens=total_completion_tokens,
+    )
+
+
+def label_images(md_content: str, pictures: list[dict]) -> CaptionResult:
+    """Label images with Docling classifications, preserving base64 for content images."""
+    entries = _classify_images(md_content, pictures)
+    if not entries:
+        return CaptionResult(markdown=md_content)
+
+    for entry in entries:
+        if entry["outcome"] == ImageOutcome.NEEDS_CAPTION:
+            label = _get_label(pictures, entry["index"])
+            entry["replacement"] = f"![{label}](data:{entry['mime_type']};base64,{entry['image_b64']})"
+            entry["outcome"] = ImageOutcome.LABELLED
+
+    result, counts, _ = _apply_replacements(md_content, entries)
+
+    return CaptionResult(
+        markdown=result,
+        skipped=counts[ImageOutcome.SKIPPED_DECORATIVE] + counts[ImageOutcome.SKIPPED_TOO_SMALL],
+        errored=counts[ImageOutcome.ERRORED_DECODE],
+        labelled=counts[ImageOutcome.LABELLED],
     )
