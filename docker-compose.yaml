@@ -41,6 +41,8 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+      captioning:
+        condition: service_healthy
 
   docling:
     image: ghcr.io/docling-project/docling-serve-cpu

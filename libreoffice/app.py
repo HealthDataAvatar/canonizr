@@ -55,7 +55,7 @@ async def convert(file: UploadFile = File(...), format: str = "pdf"):
         if not os.path.exists(output_path):
             raise HTTPException(
                 status_code=500,
-                detail=f"Conversion produced no output file",
+                detail="Conversion produced no output file",
             )
 
         with open(output_path, "rb") as f:

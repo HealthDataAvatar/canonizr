@@ -3,7 +3,12 @@ import io
 import os
 from collections import namedtuple
 
-import pytest
+from docx import Document
+from openpyxl import Workbook
+from PIL import Image, ImageDraw
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
 
 def pytest_collection_modifyitems(config, items):
@@ -13,13 +18,6 @@ def pytest_collection_modifyitems(config, items):
     focus_items = [item for item in items if item.get_closest_marker("focus")]
     if focus_items:
         items[:] = focus_items
-
-from docx import Document
-from openpyxl import Workbook
-from PIL import Image, ImageDraw
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.utils import ImageReader
-from reportlab.pdfgen import canvas
 
 EmbeddedImage = namedtuple("EmbeddedImage", ["label", "width", "height"])
 

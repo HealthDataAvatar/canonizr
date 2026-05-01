@@ -1,1 +1,1 @@
-from .convert import to_png
+from .convert import to_png as to_png
