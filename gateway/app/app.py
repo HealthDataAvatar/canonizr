@@ -13,6 +13,7 @@ from io import BytesIO
 
 from .convert import convert, UnsupportedFormat, ServiceNotConfigured
 from .services.image_postprocess import CaptioningUpstreamError
+from .tracing import Trace
 
 logger = logging.getLogger(__name__)
 
@@ -80,16 +81,16 @@ async def convert_document(
 
     mime_type = magic.from_buffer(file_bytes, mime=True)
 
-    debug = []
-    if verbose:
-        debug.append({"step": "detect", "mime_type": mime_type, "file_size_bytes": size})
+    trace = Trace("request", file_size_bytes=size, mime_type=mime_type, filename=file.filename or "document")
 
     async with _convert_semaphore:
         try:
-            result = await convert(file_bytes, mime_type, file.filename or "document", REQUEST_TIMEOUT, debug)
+            result = await convert(file_bytes, mime_type, file.filename or "document", REQUEST_TIMEOUT, trace)
+            trace.finish()
             result.detected_type = mime_type
             result.input_bytes = len(file_bytes)
             result.input_hash = xxhash.xxh64(file_bytes).hexdigest()
+            result.trace = trace.to_dict()
 
             echo = {k: v for k, v in request.headers.items() if k.lower() in ECHO_HEADERS}
             headers = {**result.audit_headers(), **echo, "X-Job-Metadata": result.metadata_json()}

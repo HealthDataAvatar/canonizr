@@ -9,7 +9,7 @@ class ConvertResult:
     markdown: str
     detected_type: str = ""
     actions: list[str] = field(default_factory=list)
-    debug: list[dict] = field(default_factory=list)
+    trace: dict = field(default_factory=dict)
     processing_time_ms: float = 0.0
     input_bytes: int = 0
     input_hash: str = ""
@@ -24,8 +24,8 @@ class ConvertResult:
             "markdown": self.markdown,
             "metadata": self._metadata(),
         }
-        if verbose and self.debug:
-            result["debug"] = self.debug
+        if verbose and self.trace:
+            result["trace"] = self.trace
         return result
 
     def _metadata(self) -> dict[str, Any]:

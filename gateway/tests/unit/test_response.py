@@ -44,6 +44,19 @@ def test_to_dict_includes_captioning():
     assert d["metadata"]["captioning"]["prompt_tokens"] == 100
 
 
+def test_to_dict_includes_trace_when_verbose():
+    result = ConvertResult(markdown="x", trace={"name": "request", "duration_ms": 100})
+    d = result.to_dict(verbose=True)
+    assert d["trace"]["name"] == "request"
+    assert d["trace"]["duration_ms"] == 100
+
+
+def test_to_dict_excludes_trace_when_not_verbose():
+    result = ConvertResult(markdown="x", trace={"name": "request"})
+    d = result.to_dict(verbose=False)
+    assert "trace" not in d
+
+
 def test_audit_headers():
     result = ConvertResult(
         markdown="x",
