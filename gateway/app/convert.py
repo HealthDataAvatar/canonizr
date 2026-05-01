@@ -70,14 +70,14 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
             debug=debug,
         )
 
-    # Images — caption or transcribe
+    # Images — describe via vision model
     if mime_type.startswith("image/"):
         if not captioning.is_available():
             raise ServiceNotConfigured(
                 "Image processing requires the captioning service. "
                 "Set CAPTIONING_ENABLED=true in .env and ensure the captioning container is running."
             )
-        result = await captioning.transcribe(file_bytes, mime_type, timeout, debug)
+        result = await captioning.describe_file(file_bytes, mime_type, timeout, debug)
         result.detected_type = mime_type
         return result
 

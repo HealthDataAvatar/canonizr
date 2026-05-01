@@ -186,7 +186,7 @@ async def caption_images(
 
     async def _caption_one(image_b64: str, mime_type: str):
         async with semaphore:
-            return await captioning.caption_text(image_b64, mime_type, timeout)
+            return await captioning.describe(image_b64, mime_type, timeout)
 
     for entry in entries:
         if entry["outcome"] == ImageOutcome.NEEDS_CAPTION:

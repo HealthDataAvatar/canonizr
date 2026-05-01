@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import os
 import time
@@ -8,7 +9,7 @@ import httpx
 from fastapi import HTTPException
 
 from ..imageconv import to_png
-from ..prompts import CAPTION, TRANSCRIBE
+from ..prompts import IMAGE
 from ..response import ConvertResult
 
 logger = logging.getLogger(__name__)
@@ -16,7 +17,8 @@ logger = logging.getLogger(__name__)
 ENDPOINT = os.environ.get("CAPTIONING_ENDPOINT") or "http://captioning:8080/v1/chat/completions"
 API_KEY = os.environ.get("CAPTIONING_API_KEY", "")
 API_MODEL = os.environ.get("CAPTIONING_API_MODEL", "")
-MAX_TOKENS_KEY = os.environ.get("CAPTIONING_MAX_TOKENS_KEY", "max_tokens") # max_completion_tokens on certain providers
+_api_params_raw = os.environ.get("CAPTIONING_API_PARAMS", "")
+API_PARAMS: dict = json.loads(_api_params_raw) if _api_params_raw else {"max_tokens": 1024}
 
 
 def is_available() -> bool:
@@ -32,8 +34,16 @@ def get_config() -> dict:
     }
 
 
-async def _call(image_b64: str, mime_type: str, prompt: str, max_tokens: int, timeout: float) -> tuple[dict, float]:
-    """Send a base64-encoded image to the captioning service."""
+@dataclass
+class VisionResult:
+    text: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    elapsed_ms: float = 0.0
+
+
+async def _call(image_b64: str, mime_type: str, timeout: float) -> VisionResult:
+    """Send a base64-encoded image to the vision service."""
     payload: dict = {
         "messages": [
             {
@@ -47,12 +57,12 @@ async def _call(image_b64: str, mime_type: str, prompt: str, max_tokens: int, ti
                     },
                     {
                         "type": "text",
-                        "text": prompt,
+                        "text": IMAGE,
                     },
                 ],
             }
         ],
-        MAX_TOKENS_KEY: max_tokens,
+        **API_PARAMS,
     }
     if API_MODEL:
         payload["model"] = API_MODEL
@@ -77,69 +87,38 @@ async def _call(image_b64: str, mime_type: str, prompt: str, max_tokens: int, ti
                 detail=f"Captioning service error {response.status_code}: {response.text}",
             )
 
-        return response.json(), elapsed
+        raw = response.json()
+        text = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
+        usage = raw.get("usage", {})
+
+        return VisionResult(
+            text=text,
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            elapsed_ms=elapsed,
+        )
 
 
-def _extract_content(raw: dict) -> str:
-    return raw.get("choices", [{}])[0].get("message", {}).get("content", "")
+async def describe(image_b64: str, mime_type: str, timeout: float) -> VisionResult:
+    """Describe an image from base64. Used for inline images in documents."""
+    return await _call(image_b64, mime_type, timeout)
 
 
-@dataclass
-class CaptionTextResult:
-    text: str
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-
-
-def _extract_usage(raw: dict) -> tuple[int, int]:
-    usage = raw.get("usage", {})
-    return usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
-
-
-async def caption_text(image_b64: str, mime_type: str, timeout: float) -> CaptionTextResult:
-    """Generate an alt-text caption."""
-    raw, _ = await _call(image_b64, mime_type, CAPTION, max_tokens=300, timeout=timeout)
-    prompt_tokens, completion_tokens = _extract_usage(raw)
-    return CaptionTextResult(
-        text=_extract_content(raw),
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-    )
-
-
-async def caption(image_bytes: bytes, mime_type: str, timeout: float) -> ConvertResult:
-    """Caption a standalone image upload."""
-    image_bytes, mime_type = to_png(image_bytes, mime_type)
-    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    raw, elapsed = await _call(image_b64, mime_type, CAPTION, max_tokens=300, timeout=timeout)
-    prompt_tokens, completion_tokens = _extract_usage(raw)
-    return ConvertResult(
-        markdown=_extract_content(raw),
-        detected_type=mime_type,
-        actions=["captioning"],
-        processing_time_ms=elapsed,
-        images_captioned=1,
-        captioning_prompt_tokens=prompt_tokens,
-        captioning_completion_tokens=completion_tokens,
-    )
-
-
-async def transcribe(image_bytes: bytes, mime_type: str, timeout: float, debug: list[dict] | None = None) -> ConvertResult:
-    """Transcribe an image of text, table, or handwriting."""
+async def describe_file(image_bytes: bytes, mime_type: str, timeout: float, debug: list[dict] | None = None) -> ConvertResult:
+    """Describe a standalone image upload."""
     if debug is None:
         debug = []
     image_bytes, mime_type = to_png(image_bytes, mime_type)
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    raw, elapsed = await _call(image_b64, mime_type, TRANSCRIBE, max_tokens=1024, timeout=timeout)
-    content = _extract_content(raw)
-    prompt_tokens, completion_tokens = _extract_usage(raw)
-    debug.append({"step": "transcription", "elapsed_ms": elapsed, "output_length": len(content)})
+    result = await _call(image_b64, mime_type, timeout)
+    debug.append({"step": "captioning", "elapsed_ms": result.elapsed_ms, "output_length": len(result.text)})
     return ConvertResult(
-        markdown=content,
+        markdown=result.text,
         detected_type=mime_type,
-        actions=["transcription"],
-        processing_time_ms=elapsed,
-        captioning_prompt_tokens=prompt_tokens,
-        captioning_completion_tokens=completion_tokens,
+        actions=["captioning"],
+        processing_time_ms=result.elapsed_ms,
+        images_captioned=1,
+        captioning_prompt_tokens=result.prompt_tokens,
+        captioning_completion_tokens=result.completion_tokens,
         debug=debug,
     )
