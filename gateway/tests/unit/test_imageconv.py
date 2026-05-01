@@ -6,9 +6,9 @@ from PIL import Image
 from app.imageconv import extract_pages, is_multipage, to_native
 
 
-def _make_image(color, fmt="PNG", mime="image/png"):
+def _make_image(color, fmt="PNG", mime="image/png", size=(100, 100)):
     """Create a single solid-color image."""
-    img = Image.new("RGB", (100, 100), color)
+    img = Image.new("RGB", size, color)
     buf = BytesIO()
     img.save(buf, format=fmt)
     return buf.getvalue(), mime
@@ -35,7 +35,7 @@ class TestToNative:
         assert out is data
         assert out_mime == "image/jpeg"
 
-    def test_tiff_converted_to_webp(self):
+    def test_tiff_converted_to_png(self):
         data, _ = _make_image("green", "TIFF", "image/tiff")
         out, out_mime = to_native(data, "image/tiff")
         assert out_mime == "image/png"
@@ -43,10 +43,31 @@ class TestToNative:
         img = Image.open(BytesIO(out))
         assert img.format == "PNG"
 
-    def test_bmp_converted_to_webp(self):
+    def test_bmp_converted_to_png(self):
         data, _ = _make_image("yellow", "BMP", "image/bmp")
         _, out_mime = to_native(data, "image/bmp")
         assert out_mime == "image/png"
+
+    def test_large_png_downscaled(self):
+        data, _ = _make_image("red", "PNG", "image/png", size=(8000, 6000))
+        out, out_mime = to_native(data, "image/png")
+        assert out_mime == "image/png"
+        assert out is not data
+        img = Image.open(BytesIO(out))
+        assert max(img.size) == 4096
+
+    def test_small_png_not_downscaled(self):
+        data, _ = _make_image("red", "PNG", "image/png", size=(2000, 1000))
+        out, out_mime = to_native(data, "image/png")
+        assert out is data
+
+    def test_large_tiff_downscaled(self):
+        data, _ = _make_image("blue", "TIFF", "image/tiff", size=(6000, 8000))
+        out, out_mime = to_native(data, "image/tiff")
+        assert out_mime == "image/png"
+        img = Image.open(BytesIO(out))
+        assert max(img.size) == 4096
+        assert img.size[1] == 4096  # height was the long side
 
 
 class TestIsMultipage:
