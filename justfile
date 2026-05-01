@@ -28,5 +28,8 @@ report:
 web:
     cd web && npm run dev
 
+unit-test:
+    cd gateway && uv run pytest tests/unit/ -v
+
 lint:
     uv run ruff check
