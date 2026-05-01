@@ -176,7 +176,7 @@ def _apply_replacements(md_content: str, entries: list[dict]) -> tuple[str, dict
 
 
 async def caption_images(
-    md_content: str, pictures: list[dict], timeout: float, parent: Span | None = None,
+    md_content: str, pictures: list[dict], deadline: float, parent: Span | None = None,
 ) -> CaptionResult:
     """Replace base64 images in markdown with captions. Raises CaptioningUpstreamError on failure."""
     entries = _classify_images(md_content, pictures)
@@ -203,7 +203,7 @@ async def caption_images(
             cap_span.children.append(img_span)
             image_spans[index] = img_span
         async with semaphore:
-            return await captioning.describe(image_b64, mime_type, timeout, parent=img_span)
+            return await captioning.describe(image_b64, mime_type, deadline, parent=img_span)
 
     for entry in entries:
         if entry["outcome"] == ImageOutcome.NEEDS_CAPTION:

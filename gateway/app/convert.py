@@ -53,7 +53,7 @@ LIBREOFFICE_TYPES = {
 }
 
 
-async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: float, trace: Trace | None = None) -> ConvertResult:
+async def convert(file_bytes: bytes, mime_type: str, filename: str, deadline: float, trace: Trace | None = None) -> ConvertResult:
     """Convert any supported file to markdown."""
     parent = trace.root if trace else None
 
@@ -87,9 +87,9 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
             for i, (p, mt) in enumerate(pages):
                 if parent:
                     with parent.span(f"page[{i}]") as page_span:
-                        r = await captioning.describe_file(p, mt, timeout, page_span)
+                        r = await captioning.describe_file(p, mt, deadline, page_span)
                 else:
-                    r = await captioning.describe_file(p, mt, timeout)
+                    r = await captioning.describe_file(p, mt, deadline)
                 results.append(r)
 
             markdown = "\n\n---\n\n".join(r.markdown for r in results)
@@ -101,7 +101,7 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
                 captioning_prompt_tokens=sum(r.captioning_prompt_tokens for r in results),
                 captioning_completion_tokens=sum(r.captioning_completion_tokens for r in results),
             )
-        result = await captioning.describe_file(file_bytes, mime_type, timeout, parent)
+        result = await captioning.describe_file(file_bytes, mime_type, deadline, parent)
         result.detected_type = mime_type
         return result
 
@@ -109,8 +109,8 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
     if mime_type == "application/pdf":
         if parent:
             with parent.span("docling") as docling_span:
-                return await docling.convert(file_bytes, mime_type, timeout, docling_span)
-        return await docling.convert(file_bytes, mime_type, timeout)
+                return await docling.convert(file_bytes, mime_type, deadline, docling_span)
+        return await docling.convert(file_bytes, mime_type, deadline)
 
     # Office docs MarkItDown handles directly
     if mime_type in MARKITDOWN_TYPES:
@@ -144,13 +144,13 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
         if parent:
             with parent.span("libreoffice", target_format=target) as lo_span:
                 converted_bytes, converted_mime = await libreoffice.convert(
-                    file_bytes, mime_type, filename, target, timeout, lo_span
+                    file_bytes, mime_type, filename, target, deadline, lo_span
                 )
         else:
             converted_bytes, converted_mime = await libreoffice.convert(
-                file_bytes, mime_type, filename, target, timeout
+                file_bytes, mime_type, filename, target, deadline
             )
-        result = await convert(converted_bytes, converted_mime, filename, timeout, trace)
+        result = await convert(converted_bytes, converted_mime, filename, deadline, trace)
         result.actions.insert(0, f"libreoffice ({mime_type} → {target})")
         result.detected_type = mime_type
         return result
