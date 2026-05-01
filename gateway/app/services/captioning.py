@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import httpx
 from fastapi import HTTPException
 
-from ..imageconv import to_png
+from ..imageconv import to_native
 from ..prompts import IMAGE
 from ..response import ConvertResult
 
@@ -108,7 +108,7 @@ async def describe_file(image_bytes: bytes, mime_type: str, timeout: float, debu
     """Describe a standalone image upload."""
     if debug is None:
         debug = []
-    image_bytes, mime_type = to_png(image_bytes, mime_type)
+    image_bytes, mime_type = to_native(image_bytes, mime_type)
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     result = await _call(image_b64, mime_type, timeout)
     debug.append({"step": "captioning", "elapsed_ms": result.elapsed_ms, "output_length": len(result.text)})

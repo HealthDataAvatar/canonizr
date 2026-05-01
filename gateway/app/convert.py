@@ -6,6 +6,7 @@ from io import BytesIO
 
 from markitdown import MarkItDown
 
+from .imageconv import extract_pages, is_multipage
 from .response import ConvertResult
 from .services import captioning, docling, libreoffice
 
@@ -76,6 +77,21 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, timeout: flo
             raise ServiceNotConfigured(
                 "Image processing requires the captioning service. "
                 "Set CAPTIONING_ENABLED=true in .env and ensure the captioning container is running."
+            )
+        if is_multipage(mime_type):
+            pages = extract_pages(file_bytes)
+            results = [await captioning.describe_file(p, mt, timeout, debug) for p, mt in pages]
+            markdown = "\n\n---\n\n".join(r.markdown for r in results)
+            elapsed = (time.time() - start_time) * 1000
+            return ConvertResult(
+                markdown=markdown,
+                detected_type=mime_type,
+                actions=["captioning"],
+                processing_time_ms=elapsed,
+                images_captioned=sum(r.images_captioned for r in results),
+                captioning_prompt_tokens=sum(r.captioning_prompt_tokens for r in results),
+                captioning_completion_tokens=sum(r.captioning_completion_tokens for r in results),
+                debug=debug,
             )
         result = await captioning.describe_file(file_bytes, mime_type, timeout, debug)
         result.detected_type = mime_type
