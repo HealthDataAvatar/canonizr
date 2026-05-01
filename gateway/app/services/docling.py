@@ -9,18 +9,22 @@ from fastapi import HTTPException
 from . import captioning
 from .image_postprocess import CaptionResult, IMAGE_RE, caption_images, label_images
 from ..response import ConvertResult
+from ..tracing import Span
 
 logger = logging.getLogger(__name__)
 
 URL = os.environ.get("DOCLING_ENDPOINT") or "http://docling:5001/v1/convert/file"
 
 
-async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list[dict] | None = None) -> ConvertResult:
+async def convert(file_bytes: bytes, mime_type: str, timeout: float, parent: Span | None = None) -> ConvertResult:
     """Extract a PDF via Docling, then caption non-decorative figures."""
-    if debug is None:
-        debug = []
     content = BytesIO(file_bytes)
-    start_time = time.time()
+
+    http_span = None
+    if parent is not None:
+        http_span = Span(name="http_request", attributes={"input_size_bytes": len(file_bytes)})
+        http_span._start = time.monotonic()
+        parent.children.append(http_span)
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
@@ -34,11 +38,19 @@ async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list
                 },
             )
         except httpx.TimeoutException:
+            if http_span:
+                http_span._end = time.monotonic()
+                http_span.set(error="timeout")
             raise HTTPException(status_code=504, detail="Docling service timeout")
         except httpx.RequestError as e:
+            if http_span:
+                http_span._end = time.monotonic()
+                http_span.set(error=str(e))
             raise HTTPException(status_code=502, detail=f"Failed to reach Docling: {e}")
 
-    docling_elapsed = (time.time() - start_time) * 1000
+    if http_span:
+        http_span._end = time.monotonic()
+        http_span.set(response_bytes=len(response.content), status_code=response.status_code)
 
     if response.status_code != 200:
         raise HTTPException(
@@ -51,37 +63,28 @@ async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list
     json_content = raw.get("document", {}).get("json_content", {})
     pictures = json_content.get("pictures", [])
 
-    debug.append({
-        "step": "docling",
-        "elapsed_ms": docling_elapsed,
-        "md_length": len(md_content),
-        "pictures_in_json": len(pictures),
-    })
+    if parent:
+        parent.set(md_length=len(md_content), pictures_count=len(pictures))
 
     actions = ["docling"]
     cap = CaptionResult(markdown=md_content)
-
     image_count = len(list(IMAGE_RE.finditer(md_content)))
 
     if image_count > 0:
         if captioning.is_available():
-            cap = await caption_images(md_content, pictures, timeout, debug)
+            cap = await caption_images(md_content, pictures, timeout, parent)
             actions.append("captioning")
         else:
             cap = label_images(md_content, pictures)
             actions.append("labelling")
 
-    elapsed = (time.time() - start_time) * 1000
-
     return ConvertResult(
         markdown=cap.markdown,
         detected_type=mime_type,
         actions=actions,
-        processing_time_ms=elapsed,
         images_captioned=cap.captioned,
         images_skipped=cap.skipped,
         images_errored=cap.errored,
         captioning_prompt_tokens=cap.prompt_tokens,
         captioning_completion_tokens=cap.completion_tokens,
-        debug=debug,
     )

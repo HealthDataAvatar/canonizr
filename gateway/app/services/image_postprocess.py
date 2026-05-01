@@ -3,6 +3,7 @@ import base64
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 from enum import Enum
 from io import BytesIO
@@ -10,6 +11,7 @@ from io import BytesIO
 from PIL import Image
 
 from . import captioning
+from ..tracing import Span
 
 logger = logging.getLogger(__name__)
 
@@ -174,23 +176,38 @@ def _apply_replacements(md_content: str, entries: list[dict]) -> tuple[str, dict
 
 
 async def caption_images(
-    md_content: str, pictures: list[dict], timeout: float, debug: list[dict],
+    md_content: str, pictures: list[dict], timeout: float, parent: Span | None = None,
 ) -> CaptionResult:
     """Replace base64 images in markdown with captions. Raises CaptioningUpstreamError on failure."""
     entries = _classify_images(md_content, pictures)
     if not entries:
         return CaptionResult(markdown=md_content)
 
+    cap_span = None
+    if parent:
+        cap_span = Span(name="captioning", attributes={"image_count": len(entries)})
+        cap_span._start = time.monotonic()
+        parent.children.append(cap_span)
+
     semaphore = asyncio.Semaphore(CAPTIONING_CONCURRENCY)
     tasks: list[tuple[int, asyncio.Task]] = []
+    image_spans: dict[int, Span] = {}
 
-    async def _caption_one(image_b64: str, mime_type: str):
+    async def _caption_one(index: int, image_b64: str, mime_type: str):
+        img_span = None
+        if cap_span:
+            img_span = Span(name=f"caption_image[{index}]", attributes={
+                "base64_bytes": len(image_b64),
+            })
+            img_span._start = time.monotonic()
+            cap_span.children.append(img_span)
+            image_spans[index] = img_span
         async with semaphore:
-            return await captioning.describe(image_b64, mime_type, timeout)
+            return await captioning.describe(image_b64, mime_type, timeout, parent=img_span)
 
     for entry in entries:
         if entry["outcome"] == ImageOutcome.NEEDS_CAPTION:
-            task = asyncio.create_task(_caption_one(entry["image_b64"], entry["mime_type"]))
+            task = asyncio.create_task(_caption_one(entry["index"], entry["image_b64"], entry["mime_type"]))
             tasks.append((entry["index"], task))
 
     total_prompt_tokens = 0
@@ -204,22 +221,34 @@ async def caption_images(
             entry["outcome"] = ImageOutcome.CAPTIONED
             total_prompt_tokens += result.prompt_tokens
             total_completion_tokens += result.completion_tokens
+            if index in image_spans:
+                image_spans[index]._end = time.monotonic()
+                image_spans[index].set(
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                    dimensions=entry.get("dimensions"),
+                )
         except Exception as e:
+            if index in image_spans:
+                image_spans[index]._end = time.monotonic()
+                image_spans[index].set(error=str(e))
             for _, remaining in tasks:
                 remaining.cancel()
+            if cap_span:
+                cap_span._end = time.monotonic()
             raise CaptioningUpstreamError(index, e) from e
 
-    result, counts, image_details = _apply_replacements(md_content, entries)
+    result, counts, _ = _apply_replacements(md_content, entries)
 
-    debug.append({
-        "step": "captioning",
-        "md_image_count": len(entries),
-        "captioned": counts[ImageOutcome.CAPTIONED],
-        "skipped": counts[ImageOutcome.SKIPPED_DECORATIVE] + counts[ImageOutcome.SKIPPED_TOO_SMALL],
-        "prompt_tokens": total_prompt_tokens,
-        "completion_tokens": total_completion_tokens,
-        "images": image_details,
-    })
+    if cap_span:
+        cap_span._end = time.monotonic()
+        cap_span.set(
+            captioned=counts[ImageOutcome.CAPTIONED],
+            skipped=counts[ImageOutcome.SKIPPED_DECORATIVE] + counts[ImageOutcome.SKIPPED_TOO_SMALL],
+            errored=counts[ImageOutcome.ERRORED_DECODE],
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
+        )
 
     return CaptionResult(
         markdown=result,

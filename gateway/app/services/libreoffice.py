@@ -6,6 +6,8 @@ from io import BytesIO
 import httpx
 from fastapi import HTTPException
 
+from ..tracing import Span
+
 logger = logging.getLogger(__name__)
 
 URL = "http://libreoffice:8000/convert"
@@ -15,14 +17,17 @@ def is_available() -> bool:
     return os.environ.get("LIBREOFFICE_ENABLED", "true").lower() == "true"
 
 
-async def convert(file_bytes: bytes, mime_type: str, filename: str, target_format: str, timeout: float, debug: list[dict] | None = None) -> tuple[bytes, str]:
+async def convert(file_bytes: bytes, mime_type: str, filename: str, target_format: str, timeout: float, parent: Span | None = None) -> tuple[bytes, str]:
     """Convert a file via headless LibreOffice. Returns (converted_bytes, new_mime_type)."""
-    if debug is None:
-        debug = []
     content = BytesIO(file_bytes)
-    start_time = time.time()
 
     async with httpx.AsyncClient(timeout=timeout) as client:
+        http_span = None
+        if parent is not None:
+            http_span = Span(name="http_request", attributes={"input_size_bytes": len(file_bytes), "target_format": target_format})
+            http_span._start = time.monotonic()
+            parent.children.append(http_span)
+
         try:
             response = await client.post(
                 URL,
@@ -30,11 +35,19 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, target_forma
                 params={"format": target_format},
             )
         except httpx.TimeoutException:
+            if http_span:
+                http_span._end = time.monotonic()
+                http_span.set(error="timeout")
             raise HTTPException(status_code=504, detail="LibreOffice service timeout")
         except httpx.RequestError as e:
+            if http_span:
+                http_span._end = time.monotonic()
+                http_span.set(error=str(e))
             raise HTTPException(status_code=502, detail=f"Failed to reach LibreOffice: {e}")
 
-    elapsed = (time.time() - start_time) * 1000
+        if http_span:
+            http_span._end = time.monotonic()
+            http_span.set(output_size_bytes=len(response.content), status_code=response.status_code)
 
     if response.status_code != 200:
         raise HTTPException(
@@ -49,13 +62,5 @@ async def convert(file_bytes: bytes, mime_type: str, filename: str, target_forma
         "pdf": "application/pdf",
     }
     converted_mime = FORMAT_MIMES.get(target_format, "application/octet-stream")
-
-    debug.append({
-        "step": "libreoffice",
-        "elapsed_ms": elapsed,
-        "input_size_bytes": len(file_bytes),
-        "output_size_bytes": len(response.content),
-        "target_format": target_format,
-    })
 
     return response.content, converted_mime

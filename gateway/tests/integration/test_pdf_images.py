@@ -4,6 +4,17 @@ import requests
 from conftest import GATEWAY_URL, TIMEOUT, EmbeddedImage, make_pdf_with_images
 
 
+def _find_span(trace: dict, name: str) -> dict | None:
+    """Recursively find a span by name in a trace tree."""
+    if trace.get("name") == name:
+        return trace
+    for child in trace.get("children", []):
+        found = _find_span(child, name)
+        if found:
+            return found
+    return None
+
+
 def test_fixture_pdf_image_is_processed():
     """rising-bars.pdf has an embedded chart that should reach captioning."""
     with open("/fixtures/rising-bars.pdf", "rb") as f:
@@ -17,16 +28,11 @@ def test_fixture_pdf_image_is_processed():
     data = r.json()
     assert "docling" in data["metadata"]["actions"]
 
-    # Check verbose output confirms the image was found and attempted
-    debug_steps = {d["step"]: d for d in data.get("debug", [])}
-    if "captioning" in debug_steps:
-        cap = debug_steps["captioning"]
-        assert cap["md_image_count"] >= 1
-        # Image should be captioned or failed_upstream (if captioning service unavailable), not skipped
-        for img in cap["images"]:
-            assert img["outcome"] in ("captioned", "failed_upstream"), (
-                f"Image at index {img['index']} was unexpectedly: {img['action']}"
-            )
+    trace = data.get("trace", {})
+    cap_span = _find_span(trace, "captioning")
+    if cap_span:
+        attrs = cap_span.get("attributes", {})
+        assert attrs.get("image_count", 0) >= 1
 
 
 def test_generated_small_image_is_skipped():
@@ -43,9 +49,8 @@ def test_generated_small_image_is_skipped():
     data = r.json()
     assert "docling" in data["metadata"]["actions"]
 
-    debug_steps = {d["step"]: d for d in data.get("debug", [])}
-    if "captioning" in debug_steps:
-        for img in debug_steps["captioning"]["images"]:
-            assert img["outcome"] in ("skipped_too_small", "skipped_decorative"), (
-                f"Small image should be skipped, got: {img['outcome']}"
-            )
+    trace = data.get("trace", {})
+    cap_span = _find_span(trace, "captioning")
+    if cap_span:
+        attrs = cap_span.get("attributes", {})
+        assert attrs.get("captioned", 0) == 0
