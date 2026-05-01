@@ -8,3 +8,4 @@ pillow-heif==0.21.0
 markitdown[all]
 pymupdf
 extract-msg
+xxhash

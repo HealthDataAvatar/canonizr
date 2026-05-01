@@ -7,7 +7,7 @@ def test_image_outcome_values():
     assert ImageOutcome.SKIPPED_DECORATIVE.value == "skipped_decorative"
     assert ImageOutcome.SKIPPED_TOO_SMALL.value == "skipped_too_small"
     assert ImageOutcome.ERRORED_DECODE.value == "errored_decode"
-    assert ImageOutcome.FAILED_UPSTREAM.value == "failed_upstream"
+    assert ImageOutcome.LABELLED.value == "labelled"
 
 
 
