@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 ENDPOINT = os.environ.get("CAPTIONING_ENDPOINT") or "http://captioning:8080/v1/chat/completions"
 API_KEY = os.environ.get("CAPTIONING_API_KEY", "")
 API_MODEL = os.environ.get("CAPTIONING_API_MODEL", "")
+MAX_TOKENS_KEY = os.environ.get("CAPTIONING_MAX_TOKENS_KEY", "max_tokens") # max_completion_tokens on certain providers
 
 
 def is_available() -> bool:
@@ -51,7 +52,7 @@ async def _call(image_b64: str, mime_type: str, prompt: str, max_tokens: int, ti
                 ],
             }
         ],
-        "max_tokens": max_tokens,
+        MAX_TOKENS_KEY: max_tokens,
     }
     if API_MODEL:
         payload["model"] = API_MODEL
