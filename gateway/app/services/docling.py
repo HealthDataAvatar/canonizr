@@ -4,10 +4,10 @@ import time
 from io import BytesIO
 
 import httpx
-from fastapi import HTTPException
 
 from . import captioning
 from .image_postprocess import CaptionResult, IMAGE_RE, caption_images, label_images
+from .retry import request_with_retry
 from ..response import ConvertResult
 from ..tracing import Span
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 URL = os.environ.get("DOCLING_ENDPOINT") or "http://docling:5001/v1/convert/file"
 
 
-async def convert(file_bytes: bytes, mime_type: str, timeout: float, parent: Span | None = None) -> ConvertResult:
+async def convert(file_bytes: bytes, mime_type: str, deadline: float, parent: Span | None = None) -> ConvertResult:
     """Extract a PDF via Docling, then caption non-decorative figures."""
     content = BytesIO(file_bytes)
 
@@ -26,37 +26,22 @@ async def convert(file_bytes: bytes, mime_type: str, timeout: float, parent: Spa
         http_span._start = time.monotonic()
         parent.children.append(http_span)
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            response = await client.post(
-                URL,
-                files=[("files", ("document.pdf", content, mime_type))],
-                data={
-                    "to_formats": ["md", "json"],
-                    "image_export_mode": "embedded",
-                    "do_ocr": False,
-                },
-            )
-        except httpx.TimeoutException:
-            if http_span:
-                http_span._end = time.monotonic()
-                http_span.set(error="timeout")
-            raise HTTPException(status_code=504, detail="Docling service timeout")
-        except httpx.RequestError as e:
-            if http_span:
-                http_span._end = time.monotonic()
-                http_span.set(error=str(e))
-            raise HTTPException(status_code=502, detail=f"Failed to reach Docling: {e}")
+    async with httpx.AsyncClient() as client:
+        response = await request_with_retry(
+            client, "POST", URL,
+            deadline=deadline,
+            service_name="docling",
+            span=http_span,
+            files=[("files", ("document.pdf", content, mime_type))],
+            data={
+                "to_formats": ["md", "json"],
+                "image_export_mode": "embedded",
+                "do_ocr": False,
+            },
+        )
 
     if http_span:
         http_span._end = time.monotonic()
-        http_span.set(response_bytes=len(response.content), status_code=response.status_code)
-
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Docling service error {response.status_code}: {response.text}",
-        )
 
     raw = response.json()
     md_content = raw.get("document", {}).get("md_content", "")
@@ -72,7 +57,7 @@ async def convert(file_bytes: bytes, mime_type: str, timeout: float, parent: Spa
 
     if image_count > 0:
         if captioning.is_available():
-            cap = await caption_images(md_content, pictures, timeout, parent)
+            cap = await caption_images(md_content, pictures, deadline, parent)
             actions.append("captioning")
         else:
             cap = label_images(md_content, pictures)

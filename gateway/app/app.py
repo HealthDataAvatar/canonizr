@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 
 import xxhash
 
@@ -26,6 +27,7 @@ REQUEST_TIMEOUT = float(os.environ.get("REQUEST_TIMEOUT", "300.0"))
 _convert_semaphore = asyncio.Semaphore(int(os.environ.get("MAX_CONCURRENT_CONVERSIONS", "4")))
 
 SANITISED_MESSAGES = {
+    429: "Upstream rate limit exceeded",
     500: "Internal processing error",
     502: "Upstream service error",
     504: "Upstream service timeout",
@@ -85,7 +87,8 @@ async def convert_document(
 
     async with _convert_semaphore:
         try:
-            result = await convert(file_bytes, mime_type, file.filename or "document", REQUEST_TIMEOUT, trace)
+            deadline = time.monotonic() + REQUEST_TIMEOUT
+            result = await convert(file_bytes, mime_type, file.filename or "document", deadline, trace)
             trace.finish()
             result.detected_type = mime_type
             result.input_bytes = len(file_bytes)

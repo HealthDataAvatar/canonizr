@@ -6,12 +6,12 @@ import time
 from dataclasses import dataclass
 
 import httpx
-from fastapi import HTTPException
 
 from ..imageconv import to_native
 from ..prompts import IMAGE
 from ..response import ConvertResult
 from ..tracing import Span
+from .retry import request_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class VisionResult:
     elapsed_ms: float = 0.0
 
 
-async def _call(image_b64: str, mime_type: str, timeout: float, parent: Span | None = None) -> VisionResult:
+async def _call(image_b64: str, mime_type: str, deadline: float, parent: Span | None = None) -> VisionResult:
     """Send a base64-encoded image to the vision service."""
     payload: dict = {
         "messages": [
@@ -74,56 +74,44 @@ async def _call(image_b64: str, mime_type: str, timeout: float, parent: Span | N
 
     payload_bytes = len(json.dumps(payload))
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        http_span = None
-        if parent is not None:
-            http_span = Span(name="http_request", attributes={"payload_bytes": payload_bytes})
-            http_span._start = time.monotonic()
-            parent.children.append(http_span)
+    http_span = None
+    if parent is not None:
+        http_span = Span(name="http_request", attributes={"payload_bytes": payload_bytes})
+        http_span._start = time.monotonic()
+        parent.children.append(http_span)
 
-        start_time = time.time()
-        try:
-            response = await client.post(ENDPOINT, json=payload, headers=headers)
-        except httpx.TimeoutException:
-            if http_span:
-                http_span._end = time.monotonic()
-                http_span.set(error="timeout")
-            raise HTTPException(status_code=504, detail="Captioning service timeout")
-        except httpx.ConnectError:
-            if http_span:
-                http_span._end = time.monotonic()
-                http_span.set(error="connect_failed")
-            raise HTTPException(status_code=502, detail=f"Failed to reach captioning service at {ENDPOINT}")
-        elapsed = (time.time() - start_time) * 1000
-
-        if http_span:
-            http_span._end = time.monotonic()
-            http_span.set(response_bytes=len(response.content), status_code=response.status_code)
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Captioning service error {response.status_code}: {response.text}",
-            )
-
-        raw = response.json()
-        text = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
-        usage = raw.get("usage", {})
-
-        return VisionResult(
-            text=text,
-            prompt_tokens=usage.get("prompt_tokens", 0),
-            completion_tokens=usage.get("completion_tokens", 0),
-            elapsed_ms=elapsed,
+    start_time = time.time()
+    async with httpx.AsyncClient() as client:
+        response = await request_with_retry(
+            client, "POST", ENDPOINT,
+            deadline=deadline,
+            service_name="captioning",
+            span=http_span,
+            json=payload, headers=headers,
         )
+    elapsed = (time.time() - start_time) * 1000
+
+    if http_span:
+        http_span._end = time.monotonic()
+
+    raw = response.json()
+    text = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
+    usage = raw.get("usage", {})
+
+    return VisionResult(
+        text=text,
+        prompt_tokens=usage.get("prompt_tokens", 0),
+        completion_tokens=usage.get("completion_tokens", 0),
+        elapsed_ms=elapsed,
+    )
 
 
-async def describe(image_b64: str, mime_type: str, timeout: float, parent: Span | None = None) -> VisionResult:
+async def describe(image_b64: str, mime_type: str, deadline: float, parent: Span | None = None) -> VisionResult:
     """Describe an image from base64. Used for inline images in documents."""
-    return await _call(image_b64, mime_type, timeout, parent)
+    return await _call(image_b64, mime_type, deadline, parent)
 
 
-async def describe_file(image_bytes: bytes, mime_type: str, timeout: float, parent: Span | None = None) -> ConvertResult:
+async def describe_file(image_bytes: bytes, mime_type: str, deadline: float, parent: Span | None = None) -> ConvertResult:
     """Describe a standalone image upload."""
     input_size = len(image_bytes)
     if parent:
@@ -134,7 +122,7 @@ async def describe_file(image_bytes: bytes, mime_type: str, timeout: float, pare
         image_bytes, mime_type = to_native(image_bytes, mime_type)
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    result = await _call(image_b64, mime_type, timeout, parent)
+    result = await _call(image_b64, mime_type, deadline, parent)
 
     return ConvertResult(
         markdown=result.text,
