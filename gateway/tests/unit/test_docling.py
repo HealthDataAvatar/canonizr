@@ -1,5 +1,5 @@
-"""Unit tests for docling image outcome enum and caption result."""
-from app.services.docling import ImageOutcome, CaptionResult, _get_skip_indices
+"""Unit tests for image post-processing: outcome enum, caption result, skip indices."""
+from app.services.image_postprocess import ImageOutcome, _get_skip_indices
 
 
 def test_image_outcome_values():
@@ -9,15 +9,6 @@ def test_image_outcome_values():
     assert ImageOutcome.ERRORED_DECODE.value == "errored_decode"
     assert ImageOutcome.FAILED_UPSTREAM.value == "failed_upstream"
 
-
-def test_caption_result_action_summary():
-    cap = CaptionResult(markdown="", captioned=3, skipped=1, errored=0, failed=2)
-    assert cap.action_summary() == "captioning (3 captioned, 1 skipped, 2 failed)"
-
-
-def test_caption_result_action_summary_with_errored():
-    cap = CaptionResult(markdown="", captioned=0, skipped=0, errored=1, failed=0)
-    assert cap.action_summary() == "captioning (1 errored)"
 
 
 def test_get_skip_indices_decorative():
