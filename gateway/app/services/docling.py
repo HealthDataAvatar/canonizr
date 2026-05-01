@@ -1,5 +1,6 @@
 import base64
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ from ..response import ConvertResult
 
 logger = logging.getLogger(__name__)
 
-URL = "http://docling:5001/v1/convert/file"
+URL = os.environ.get("DOCLING_ENDPOINT") or "http://docling:5001/v1/convert/file"
 
 MIN_IMAGE_DIMENSION = 50
 

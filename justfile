@@ -11,7 +11,7 @@ setup:
     ./bin/setup.sh
 
 test:
-    docker compose --profile test up --build --abort-on-container-exit || true
+    docker compose --profile test --profile captioning up --build --abort-on-container-exit || true
 
 report:
     @echo "\n=== Test Results ==="
