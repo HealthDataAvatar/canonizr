@@ -60,6 +60,7 @@ async def convert_document(
         try:
             result = await convert(file_bytes, mime_type, file.filename or "document", REQUEST_TIMEOUT, debug)
             result.detected_type = mime_type
+            result.input_kb = round(len(file_bytes) / 1024, 1)
 
             if "text/markdown" in accept:
                 return Response(

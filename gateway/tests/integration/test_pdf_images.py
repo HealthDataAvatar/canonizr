@@ -22,9 +22,9 @@ def test_fixture_pdf_image_is_processed():
     if "captioning" in debug_steps:
         cap = debug_steps["captioning"]
         assert cap["md_image_count"] >= 1
-        # Image should be captioned or fallback (if captioning service unavailable), not skipped
+        # Image should be captioned or failed_upstream (if captioning service unavailable), not skipped
         for img in cap["images"]:
-            assert img["action"] in ("captioned", "fallback"), (
+            assert img["outcome"] in ("captioned", "failed_upstream"), (
                 f"Image at index {img['index']} was unexpectedly: {img['action']}"
             )
 
@@ -46,6 +46,6 @@ def test_generated_small_image_is_skipped():
     debug_steps = {d["step"]: d for d in data.get("debug", [])}
     if "captioning" in debug_steps:
         for img in debug_steps["captioning"]["images"]:
-            assert img["action"] in ("skipped_too_small", "skipped_decorative"), (
-                f"Small image should be skipped, got: {img['action']}"
+            assert img["outcome"] in ("skipped_too_small", "skipped_decorative"), (
+                f"Small image should be skipped, got: {img['outcome']}"
             )

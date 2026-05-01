@@ -27,3 +27,6 @@ report:
 
 web:
     cd web && npm run dev
+
+lint:
+    uv run ruff check

@@ -80,12 +80,35 @@ def _image_dimensions(image_b64: str) -> tuple[int, int]:
     return img.size
 
 
+class ImageOutcome(str, Enum):
+    """Outcome of processing a single image in the pipeline."""
+    CAPTIONED = "captioned"
+    SKIPPED_DECORATIVE = "skipped_decorative"
+    SKIPPED_TOO_SMALL = "skipped_too_small"
+    ERRORED_DECODE = "errored_decode"
+    FAILED_UPSTREAM = "failed_upstream"
+
+
 @dataclass
 class CaptionResult:
     markdown: str
     captioned: int = 0
     skipped: int = 0
+    errored: int = 0
     failed: int = 0
+
+    def action_summary(self) -> str:
+        """Format a human-readable summary for the actions list."""
+        parts = []
+        if self.captioned:
+            parts.append(f"{self.captioned} captioned")
+        if self.skipped:
+            parts.append(f"{self.skipped} skipped")
+        if self.errored:
+            parts.append(f"{self.errored} errored")
+        if self.failed:
+            parts.append(f"{self.failed} failed")
+        return f"captioning ({', '.join(parts)})"
 
 
 async def _caption_images(
@@ -98,9 +121,7 @@ async def _caption_images(
 
     skip_indices = _get_skip_indices(pictures)
 
-    captioned = 0
-    skipped = 0
-    failed = 0
+    counts: dict[ImageOutcome, int] = {o: 0 for o in ImageOutcome}
     result = md_content
     image_details = []
 
@@ -110,55 +131,60 @@ async def _caption_images(
         mime_type = match.group(2)
         image_b64 = match.group(3)
 
-        # Use classification label as caption for decorative images
+        replacement = None
+        outcome = None
+        detail: dict = {"index": index}
+
         if index in skip_indices:
             labels = {a.get("label") for a in pictures[index].get("annotations", []) if a.get("label")}
             label = next(iter(labels), "Image")
             replacement = f"![{label.replace('_', ' ').title()}]"
+            outcome = ImageOutcome.SKIPPED_DECORATIVE
+            detail["label"] = label
+        else:
+            try:
+                width, height = _image_dimensions(image_b64)
+            except Exception:
+                logger.warning("Could not decode image at index %d", index)
+                outcome = ImageOutcome.ERRORED_DECODE
+            else:
+                detail["dimensions"] = [width, height]
+                if width < MIN_IMAGE_DIMENSION or height < MIN_IMAGE_DIMENSION:
+                    outcome = ImageOutcome.SKIPPED_TOO_SMALL
+                else:
+                    try:
+                        text = await captioning.caption_text(image_b64, mime_type, timeout)
+                        replacement = f"![{text}]"
+                        outcome = ImageOutcome.CAPTIONED
+                    except Exception as e:
+                        logger.warning("Captioning failed for image at index %d: %s", index, e)
+                        replacement = f"![{alt_text or 'Image'}]"
+                        outcome = ImageOutcome.FAILED_UPSTREAM
+                        detail["error"] = str(e)
+
+        detail["outcome"] = outcome.value
+        counts[outcome] += 1
+        if replacement is None:
+            result = result[:match.start()] + result[match.end():]
+        else:
             result = result[:match.start()] + replacement + result[match.end():]
-            skipped += 1
-            image_details.append({"index": index, "action": "label_from_classification", "label": label})
-            continue
-
-        # Check dimensions from actual image bytes
-        try:
-            width, height = _image_dimensions(image_b64)
-        except Exception:
-            logger.warning("Could not decode image at index %d", index)
-            skipped += 1
-            result = result[:match.start()] + result[match.end():]
-            image_details.append({"index": index, "action": "skipped_decode_error"})
-            continue
-
-        if width < MIN_IMAGE_DIMENSION or height < MIN_IMAGE_DIMENSION:
-            skipped += 1
-            result = result[:match.start()] + result[match.end():]
-            image_details.append({"index": index, "dimensions": [width, height], "action": "skipped_too_small"})
-            continue
-
-        # Caption the image
-        try:
-            caption_text = await captioning.caption_text(image_b64, mime_type, timeout)
-            replacement = f"![{caption_text}]"
-            captioned += 1
-            image_details.append({"index": index, "dimensions": [width, height], "action": "captioned"})
-        except Exception as e:
-            logger.warning("Captioning failed for image at index %d: %s", index, e)
-            replacement = f"![{alt_text or 'Image'}]"
-            failed += 1
-            image_details.append({"index": index, "dimensions": [width, height], "action": "fallback", "error": str(e)})
-
-        result = result[:match.start()] + replacement + result[match.end():]
+        image_details.append(detail)
 
     debug.append({
         "step": "captioning",
         "md_image_count": len(matches),
-        "captioned": captioned,
-        "skipped": skipped,
+        "captioned": counts[ImageOutcome.CAPTIONED],
+        "skipped": counts[ImageOutcome.SKIPPED_DECORATIVE] + counts[ImageOutcome.SKIPPED_TOO_SMALL],
         "images": image_details,
     })
 
-    return CaptionResult(markdown=result, captioned=captioned, skipped=skipped, failed=failed)
+    return CaptionResult(
+        markdown=result,
+        captioned=counts[ImageOutcome.CAPTIONED],
+        skipped=counts[ImageOutcome.SKIPPED_DECORATIVE] + counts[ImageOutcome.SKIPPED_TOO_SMALL],
+        errored=counts[ImageOutcome.ERRORED_DECODE],
+        failed=counts[ImageOutcome.FAILED_UPSTREAM],
+    )
 
 
 async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list[dict] | None = None) -> ConvertResult:
@@ -206,28 +232,16 @@ async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list
 
     actions = ["docling"]
     warnings: list[dict] = []
-    images_captioned = 0
-    images_skipped = 0
+    cap = CaptionResult(markdown=md_content)
 
     image_count = len(list(IMAGE_RE.finditer(md_content)))
 
     if captioning.is_available() and image_count > 0:
         cap = await _caption_images(md_content, pictures, timeout, debug)
-        md_content = cap.markdown
-        images_captioned = cap.captioned
-        images_skipped = cap.skipped
-        parts = []
-        if cap.captioned:
-            parts.append(f"{cap.captioned} captioned")
-        if cap.skipped:
-            parts.append(f"{cap.skipped} skipped")
+        actions.append(cap.action_summary())
         if cap.failed:
-            parts.append(f"{cap.failed} failed")
-        actions.append(f"captioning ({', '.join(parts)})")
-        if cap.failed:
-            # Extract error from first failed image for the warning message
-            errors = [d.get("error", "") for d in debug[-1].get("images", []) if d.get("action") == "fallback"]
-            reason = errors[0] if errors else "unknown error"
+            failed_details = [d for d in debug[-1].get("images", []) if d.get("outcome") == ImageOutcome.FAILED_UPSTREAM.value]
+            reason = failed_details[0].get("error", "unknown error") if failed_details else "unknown error"
             warnings.append({
                 "code": "captioning_failed",
                 "message": f"{cap.failed} image(s) could not be captioned: {reason}",
@@ -242,17 +256,18 @@ async def convert(file_bytes: bytes, mime_type: str, timeout: float, debug: list
             "config": captioning.get_config(),
         })
 
-    completeness = "partial" if warnings else "full"
     elapsed = (time.time() - start_time) * 1000
 
     return ConvertResult(
-        markdown=md_content,
+        markdown=cap.markdown,
         detected_type=mime_type,
         actions=actions,
         warnings=warnings,
-        completeness=completeness,
+        completeness="partial" if warnings else "full",
         processing_time_ms=elapsed,
-        images_captioned=images_captioned,
-        images_skipped=images_skipped,
+        images_captioned=cap.captioned,
+        images_skipped=cap.skipped,
+        images_errored=cap.errored,
+        images_failed=cap.failed,
         debug=debug,
     )
